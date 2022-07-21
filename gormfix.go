@@ -253,6 +253,11 @@ func checkIDsNotFound(db *gorm.DB, nestedIModels []mdl.IModel) error {
 			}
 		}
 
+		if len(ids) == 0 {
+			// nothing to check
+			return nil
+		}
+
 		tableName := mdl.GetTableNameFromIModel(nestedIModels[0])
 		var count int64
 		err := db.Table(tableName).Where("id IN (?)", ids).Count(&count).Error
