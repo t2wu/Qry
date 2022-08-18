@@ -61,13 +61,20 @@ type Query struct {
 func (q *Query) Q(args ...interface{}) IQuery {
 	// q.Reset() // always reset with Q() // do i need to? what if order first?
 
+	// Returns a new IQuery, because we don't really want to keep state here
+	// It is expected that after q = qry.DB(db),
+	// q.Q() be re-entrant and many can call at the same time.
+	// So have to return a new IQuery
+
+	q2 := &Query{db: q.db}
+
 	mb := ModelAndBuilder{}
 	for _, arg := range args {
 		b, ok := arg.(*PredicateRelationBuilder)
 		if !ok {
-			q.Err = fmt.Errorf("incorrect arguments for Q()")
-			PrintFileAndLine(q.Err)
-			return q
+			q2.Err = fmt.Errorf("incorrect arguments for Q()")
+			PrintFileAndLine(q2.Err)
+			return q2
 		}
 
 		// Leave mdl empty because it is not going to be filled until
@@ -79,9 +86,9 @@ func (q *Query) Q(args ...interface{}) IQuery {
 		mb.builderInfos = append(mb.builderInfos, binfo)
 	}
 
-	q.mainMB = &mb
+	q2.mainMB = &mb
 
-	return q
+	return q2
 }
 
 func (q *Query) Order(field string, order Order) IQuery {
