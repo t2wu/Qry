@@ -1,10 +1,6 @@
 package mdl
 
 import (
-	"errors"
-	"log"
-	"strings"
-
 	"github.com/go-playground/locales/en"
 	ut "github.com/go-playground/universal-translator"
 	"github.com/go-playground/validator/v10"
@@ -24,35 +20,4 @@ func init() {
 	Trans, _ = uni.GetTranslator("en")
 	Validate = validator.New()
 	en_translations.RegisterDefaultTranslations(Validate, Trans)
-}
-
-func ValidateModel(modelObj IModel) error {
-	err := Validate.Struct(modelObj)
-	if err != nil {
-		if errs, ok := err.(validator.ValidationErrors); ok {
-			s, err2 := TranslateValidationErrorMessage(errs, modelObj)
-			if err2 != nil {
-				log.Println("error translating validaiton message:", err2)
-			}
-			err = errors.New(s)
-		}
-
-		return err
-	}
-	return nil
-}
-
-func TranslateValidationErrorMessage(errs validator.ValidationErrors, modelObj IModel) (string, error) {
-	// There could be several, outputting one for now
-	for k, v := range errs.Translate(Trans) { // map[string]string
-		// can have multiple, let me just do one at a time now
-		toks := strings.SplitN(k, ".", 2)
-		n, err := FieldNameToJSONName(modelObj, toks[1])
-		if err != nil {
-			return "", err
-		}
-		v = strings.ToLower(v)
-		return n + ": " + v, nil
-	}
-	return "", nil // never here
 }

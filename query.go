@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/t2wu/qry/datatype"
 	"github.com/t2wu/qry/mdl"
@@ -25,7 +26,7 @@ const (
 // It would be Q(db, C(...), C(...)...).First() or Q(db).First() with empty PredicateRelationBuilder
 // Use multiple C() when working on inner fields (one C() per struct field)
 func Q(db *gorm.DB, args ...interface{}) IQuery {
-	q := &Query{db: db}
+	q := &Query{db: db, saveLck: &sync.Mutex{}}
 	return q.Q(args...)
 }
 
@@ -53,6 +54,10 @@ type Query struct {
 	limit  *int // custom limit
 	offset *int // custom offset
 
+	// This is the temporary fix, what should probably happen is that each call to Query should
+	// create a new Query intance with the state mantained
+	saveLck *sync.Mutex
+
 	mainMB *ModelAndBuilder  // the builder on the main mdl (including the nested one)
 	mbs    []ModelAndBuilder // the builder for non-nested mdl, each one is a separate non-nested mdl
 }
@@ -66,7 +71,7 @@ func (q *Query) Q(args ...interface{}) IQuery {
 	// q.Q() be re-entrant and many can call at the same time.
 	// So have to return a new IQuery
 
-	q2 := &Query{db: q.db}
+	q2 := &Query{db: q.db, saveLck: &sync.Mutex{}}
 
 	mb := ModelAndBuilder{}
 	for _, arg := range args {
@@ -667,14 +672,15 @@ func (q *Query) DeleteMany(modelObjs []mdl.IModel) IQuery {
 }
 
 func (q *Query) Save(modelObj mdl.IModel) IQuery {
-	defer resetWithoutResetError(q)
-	db := q.db
+	q.saveLck.Lock()
+	defer q.saveLck.Unlock()
 
+	defer resetWithoutResetError(q)
 	if q.Err != nil {
 		return q
 	}
 
-	q.Err = db.Save(modelObj).Error
+	q.Err = q.db.Save(modelObj).Error
 	if q.Err != nil {
 		PrintFileAndLine(q.Err)
 	}
@@ -684,7 +690,6 @@ func (q *Query) Save(modelObj mdl.IModel) IQuery {
 // Update only allow one level of builder
 func (q *Query) Update(modelObj mdl.IModel, p *PredicateRelationBuilder) IQuery {
 	defer resetWithoutResetError(q)
-	db := q.db
 
 	if q.Err != nil {
 		return q
@@ -693,6 +698,8 @@ func (q *Query) Update(modelObj mdl.IModel, p *PredicateRelationBuilder) IQuery 
 	if q.mainMB != nil {
 		q.mainMB.modelObj = modelObj
 	}
+
+	db := q.db
 
 	// Won't work, builtqueryCore has "ORDER BY Clause"
 	var err error
