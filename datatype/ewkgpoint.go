@@ -30,8 +30,11 @@ type EWKBPoint struct {
 // Value satisfies the Valuer interace and is responsible for writing data to the database
 func (m *EWKBPoint) Value() (driver.Value, error) {
 	// When updating a pegassoc but not give any value, it runs into this
-	if m == nil {
+	if m == nil { // for gormv1
 		return "SRID=0;POINT(0 0)", nil
+	}
+	if m.Point.Point == nil { // for gormv2
+		return nil, nil
 	}
 
 	pt := m.Point
@@ -81,10 +84,11 @@ func (m *EWKBPoint) Scan(src interface{}) error {
 }
 
 // UnmarshalJSON json satisfies the JSON library
-// {
-//     "type": "Point",
-//     "coordinates": [30, 10]
-// }
+//
+//	{
+//	    "type": "Point",
+//	    "coordinates": [30, 10]
+//	}
 func (m *EWKBPoint) UnmarshalJSON(b []byte) (err error) {
 	// loc := []float64{0, 0}
 	loc := struct {
