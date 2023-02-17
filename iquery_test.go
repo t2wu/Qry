@@ -3,8 +3,8 @@ package qry
 import (
 	"testing"
 
-	"github.com/jinzhu/gorm"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/gorm"
 )
 
 func Test_IQuery_QueryComformsToIQuery_Works(t *testing.T) {

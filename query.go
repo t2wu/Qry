@@ -4,15 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/t2wu/qry/datatype"
 	"github.com/t2wu/qry/mdl"
+	"github.com/t2wu/qry/qrylogger"
 
-	"github.com/jinzhu/gorm"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+	"gorm.io/gorm/logger"
 )
 
 // -----------------------------
@@ -85,8 +88,8 @@ func (q *Query) Q(args ...interface{}) IQuery {
 		// Leave mdl empty because it is not going to be filled until
 		// Find() or First()
 		binfo := BuilderInfo{
-			builder:   b,
-			processed: false,
+			builder: b,
+			// processed: false,
 		}
 		mb.builderInfos = append(mb.builderInfos, binfo)
 	}
@@ -190,8 +193,8 @@ func (q *Query) InnerJoin(modelObj mdl.IModel, foreignObj mdl.IModel, args ...in
 			return q
 		}
 		binfo := BuilderInfo{
-			builder:   b,
-			processed: false,
+			builder: b,
+			// processed: false,
 		}
 		mb.builderInfos = append(mb.builderInfos, binfo)
 	}
@@ -224,7 +227,13 @@ func (q *Query) Take(modelObj mdl.IModel) IQuery {
 	}
 
 	db = q.buildQueryOrderOffSetAndLimit(db, modelObj)
-	q.setLogger(db)
+
+	names := mdl.GetEmbeddedTablePaths(modelObj)
+	db = db.Preload(clause.Associations)
+	for _, name := range names {
+		db = db.Preload(name)
+	}
+
 	q.Err = db.Take(modelObj).Error
 
 	return q
@@ -252,13 +261,19 @@ func (q *Query) First(modelObj mdl.IModel) IQuery {
 	}
 
 	db = q.buildQueryOrderOffSetAndLimit(db, modelObj)
-	q.setLogger(db)
+
+	names := mdl.GetEmbeddedTablePaths(modelObj)
+	db = db.Preload(clause.Associations)
+	for _, name := range names {
+		db = db.Preload(name)
+	}
+
 	q.Err = db.First(modelObj).Error
 
 	return q
 }
 
-func (q *Query) Count(modelObj mdl.IModel, no *int) IQuery {
+func (q *Query) Count(modelObj mdl.IModel, no *int64) IQuery {
 	defer resetWithoutResetError(q)
 
 	db := q.db
@@ -317,6 +332,7 @@ loop:
 	} else {
 		db = db.Model(modelObj)
 	}
+	// db = db.Model(modelObj)
 
 	var err error
 	db, err = q.buildQueryCore(db, modelObj)
@@ -326,8 +342,60 @@ loop:
 	}
 
 	db = q.buildQueryOrderOffSetAndLimit(db, modelObj)
-	q.setLogger(db)
+
+	names := mdl.GetEmbeddedTablePaths(modelObj)
+	db = db.Preload(clause.Associations)
+	for _, name := range names {
+		db = db.Preload(name)
+	}
+
 	q.Err = db.Find(modelObjs).Error
+	// q.Err = db.Find(modelObjs).Error
+
+	// In Gorm v1 if nothing is found, there is an error
+	// Whereas in v1 there is no error unlike take, first, last.
+	// Here we maintain v1's behavior: error when nothing is found
+	// We do that by checking slice length or modelObj ID
+	if q.Err == nil {
+		// could be a slice, a pointer to struct
+		// If find() is given a slice and not found, no warning
+		// If find() is given an element, should have warning
+		typ := reflect.TypeOf(modelObjs)
+		switch typ.Kind() {
+		// case reflect.Slice:
+		// 	if reflect.ValueOf(modelObjs).Len() == 0 {
+		// 		q.Err = gorm.ErrRecordNotFound
+		// 	}
+		case reflect.Ptr:
+			// if id is nil, then it's not found
+			if obj, ok := modelObjs.(mdl.IModel); ok {
+				if id := obj.GetID(); id == nil {
+					q.Err = gorm.ErrRecordNotFound
+				}
+			}
+
+			// Is it a pointer to a struct?
+			// ele := reflect.ValueOf(modelObjs).Elem()
+			// if obj, ok := modelObjs.(*mdl.IModel); ok {
+			// 	if id := (*obj).(mdl.IModel).GetID(); id == nil {
+			// 		q.Err = gorm.ErrRecordNotFound
+			// 	}
+			// }
+
+			// It could be a pointer to slice
+			// sl := reflect.ValueOf(modelObjs).Elem()
+			// if sl.Kind() == reflect.Slice {
+			// 	if sl.Len() == 0 {
+			// 		q.Err = gorm.ErrRecordNotFound
+			// 	}
+			// }
+
+			// Should already handled all cases
+
+		default:
+			break
+		}
+	}
 
 	return q
 }
@@ -419,6 +487,7 @@ func (q *Query) buildQueryCore(db *gorm.DB, modelObj mdl.IModel) (*gorm.DB, erro
 	return db, nil
 }
 
+// []string are join table names
 func (q *Query) buildQueryCoreInnerJoin(db *gorm.DB, mb *ModelAndBuilder) (*gorm.DB, error) {
 	// There may not be any builder for the level of join
 	// for example, when querying for 3rd level field, 2nd level also
@@ -456,6 +525,8 @@ func (q *Query) buildQueryCoreInnerJoin(db *gorm.DB, mb *ModelAndBuilder) (*gorm
 					return db, err
 				}
 
+				// log.Println("*******join:", fmt.Sprintf("INNER JOIN \"%s\" ON \"%s\".%s_id = \"%s\".id AND (%s)", tblName, tblName,
+				// outerTableName, outerTableName, s))
 				db = db.Joins(fmt.Sprintf("INNER JOIN \"%s\" ON \"%s\".%s_id = \"%s\".id AND (%s)", tblName, tblName,
 					outerTableName, outerTableName, s), vals...)
 			}
@@ -480,6 +551,10 @@ func (q *Query) buildQueryCoreInnerJoin(db *gorm.DB, mb *ModelAndBuilder) (*gorm
 				return db, err
 			}
 
+			// log.Println("*******join:", fmt.Sprintf("INNER JOIN \"%s\" ON \"%s\".%s_id = \"%s\".id",
+			// currTableName, currTableName,
+			// upperTableName, upperTableName))
+
 			db = db.Joins(fmt.Sprintf("INNER JOIN \"%s\" ON \"%s\".%s_id = \"%s\".id",
 				currTableName, currTableName,
 				upperTableName, upperTableName))
@@ -499,7 +574,8 @@ func (q *Query) buildQueryCoreInnerJoin(db *gorm.DB, mb *ModelAndBuilder) (*gorm
 				return db, err
 			}
 
-			db = db.Model(mb.modelObj).Where(s, vals...)
+			// db = db.Model(mb.modelObj).Where(s, vals...)
+			db = db.Where(s, vals...)
 		}
 	}
 
@@ -532,18 +608,64 @@ func (q *Query) buildQueryOrderOffSetAndLimit(db *gorm.DB, modelObj mdl.IModel) 
 	return db
 }
 
-func (q *Query) Create(modelObj mdl.IModel) IQuery {
+// Create could be a mdl.IModel or *[]mdl.IModel
+func (q *Query) Create(value interface{}) IQuery {
 	q.Reset() // This shouldn't matter, unless it's a left-over bug
 	defer resetWithoutResetError(q)
 	db := q.db
 
-	if err := RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db, modelObj); err != nil {
-		q.Err = err
-		return q
+	tableName := "nada"
+
+	// Single modelObj
+	if modelObj, ok := value.(mdl.IModel); ok {
+		tableName = mdl.GetTableNameFromIModel(modelObj)
+		if err := RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db, modelObj); err != nil {
+			q.Err = err
+			return q
+		}
+	} else {
+		val := reflect.Indirect(reflect.ValueOf(value))
+		switch val.Kind() {
+		case reflect.Slice, reflect.Array:
+			if val.Len() == 0 {
+				return q
+			}
+
+			isPtr := false
+			if val.Index(0).Kind() == reflect.Ptr {
+				isPtr = true
+			}
+
+			if isPtr {
+				tableName = mdl.GetTableNameFromIModel(val.Index(0).Interface().(mdl.IModel))
+			} else {
+				tableName = mdl.GetTableNameFromIModel(val.Index(0).Addr().Interface().(mdl.IModel))
+			}
+			// }
+			// reflectValue := reflect.Indirect(reflect.ValueOf(value))
+			// for reflectValue.Kind() == reflect.Ptr || reflectValue.Kind() == reflect.Interface {
+			// 	reflectValue = reflect.Indirect(reflectValue)
+			// }
+
+			for j := 0; j < val.Len(); j++ {
+				var nestedModel mdl.IModel
+				if isPtr {
+					nestedModel = val.Index(j).Interface().(mdl.IModel)
+				} else {
+					nestedModel = val.Index(j).Addr().Interface().(mdl.IModel)
+				}
+				if err := RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db, nestedModel); err != nil {
+					q.Err = err
+					return q
+				}
+			}
+		default:
+			q.Err = fmt.Errorf("wrong type, should be mdl.IModel or a slice of mdl.IModel")
+		}
 	}
 
-	q.setLogger(db)
-	if err := db.Create(modelObj).Error; err != nil {
+	if err := db.Table(tableName).Create(value).Error; err != nil {
+		// if err := db.Table(tableName).Create(value).Error; err != nil {
 		PrintFileAndLine(err)
 		q.Err = err
 		return q
@@ -551,126 +673,86 @@ func (q *Query) Create(modelObj mdl.IModel) IQuery {
 
 	// For pegassociated, the since we expect association_autoupdate:false
 	// need to manually create it
-	if err := CreatePeggedAssocFields(db, modelObj); err != nil {
-		q.Err = err
-		return q
-	}
-
-	return q
-}
-
-func (q *Query) CreateMany(modelObjs []mdl.IModel) IQuery {
-	q.Reset() // This shouldn't matter, unless it's a left-over bug
-	defer resetWithoutResetError(q)
-	db := q.db
-
-	car := BatchCreateData{}
-	car.toProcess = make(map[string][]mdl.IModel)
-
-	// TODO: do a batch create instead
-	for _, modelObj := range modelObjs {
-		if err := RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db, modelObj); err != nil {
-			q.Err = err
-			return q
-		}
-
-		q.Err = db.Create(modelObj).Error
-		if q.Err != nil {
-			PrintFileAndLine(q.Err)
-			return q
-		}
-
-		// if err := gatherModelToCreate(reflect.ValueOf(modelObj).Elem(), &car); err != nil {
-		// 	q.Err = err
-		// 	return q
-		// }
-
-		// For pegassociated, the since we expect association_autoupdate:false
-		// need to manually create it
-		if err := CreatePeggedAssocFields(db, modelObj); err != nil {
-			q.Err = err
-			return q
-		}
-	}
+	// if err := CreatePeggedAssocFields(db, modelObj); err != nil {
+	// 	q.Err = err
+	// 	return q
+	// }
 
 	return q
 }
 
 // Delete can be with criteria, or can just delete the mdl directly
-func (q *Query) Delete(modelObj mdl.IModel) IQuery {
+func (q *Query) Delete(value interface{}) IQuery {
 	db := q.db
 
 	if q.Err != nil {
 		return q
 	}
 
-	if modelObj.GetID() == nil && q.mainMB == nil && len(q.mbs) == 0 {
-		// You could delete every record in the database with Gormv1
-		q.Err = errors.New("delete must have a modelID or include at least one PredicateRelationBuilder")
-		return q
-	}
-
-	if q.mainMB != nil {
-		q.mainMB.modelObj = modelObj
-	} else {
-		db = db.Model(modelObj)
-	}
-
-	// Won't work, builtqueryCore has "ORDER BY Clause"
-	var err error
-	db = db.Unscoped()
-	db, err = q.buildQueryCore(db, modelObj)
-	if err != nil {
-		q.Err = err
-		return q
-	}
-
-	q.setLogger(db)
-	if err := db.Delete(modelObj).Error; err != nil {
-		q.Err = err
-		return q
-	}
-
-	if err := DeleteModelFixManyToManyAndPegAndPegAssoc(db, modelObj); err != nil {
-		q.Err = err
-		return q
-	}
-
-	return q
-}
-
-func (q *Query) DeleteMany(modelObjs []mdl.IModel) IQuery {
-	q.Reset() // needed only if left-over bug
-	defer resetWithoutResetError(q)
-	db := q.db
-
-	// Collect all the ids, non can be nil
-	ids := make([]*datatype.UUID, len(modelObjs))
-	for i, modelObj := range modelObjs {
-		ids[i] = modelObj.GetID()
-		if modelObj.GetID() == nil {
-			q.Err = errors.New("modelObj to delete cannot have an ID of nil")
+	// Single modelObj
+	tableName := ""
+	if modelObj, ok := value.(mdl.IModel); ok {
+		if modelObj.GetID() == nil && q.mainMB == nil && len(q.mbs) == 0 {
+			// You could delete every record in the database with Gormv1
+			q.Err = errors.New("delete must have a modelID or include at least one PredicateRelationBuilder")
 			return q
 		}
-	}
 
-	m := reflect.New(reflect.TypeOf(modelObjs[0]).Elem()).Interface().(mdl.IModel)
-	// Batch delete, not documented for Gorm v1 but actually works
-	q.setLogger(db)
-	if q.Err = db.Unscoped().Delete(m, ids).Error; q.Err != nil {
-		return q
-	}
+		tableName = mdl.GetTableNameFromIModel(modelObj)
 
-	for _, modelObj := range modelObjs {
-		if err := DeleteModelFixManyToManyAndPegAndPegAssoc(db, modelObj); err != nil {
+		// build query core is only allowed whe nvalue is IModel
+		// so it's like some qeury and then Delete(&models.TopLevel{})
+		if q.mainMB != nil {
+			q.mainMB.modelObj = modelObj
+		}
+		// else {
+		// 	db = db.Model(modelObj)
+		// }
+
+		// Won't work, builtqueryCore has "ORDER BY Clause"
+		var err error
+		db = db.Unscoped()
+		db, err = q.buildQueryCore(db, modelObj)
+		if err != nil {
 			q.Err = err
 			return q
 		}
+
+		// Rely on OnDelete foreign key cascade
+		// if err := DeleteModelFixManyToManyAndPegAndPegAssoc(db, modelObj); err != nil {
+		// 	q.Err = err
+		// 	return q
+		// }
+	} else {
+		val := reflect.Indirect(reflect.ValueOf(value))
+		switch val.Kind() {
+		case reflect.Slice, reflect.Array:
+			if val.Len() == 0 {
+				return q
+			}
+
+			isPtr := false
+			if val.Index(0).Kind() == reflect.Ptr {
+				isPtr = true
+			}
+
+			if isPtr {
+				tableName = mdl.GetTableNameFromIModel(val.Index(0).Interface().(mdl.IModel))
+			} else {
+				tableName = mdl.GetTableNameFromIModel(val.Index(0).Addr().Interface().(mdl.IModel))
+			}
+		}
+	}
+
+	if err := db.Table(tableName).Delete(value).Error; err != nil {
+		q.Err = err
+		return q
 	}
 
 	return q
 }
 
+// Save is to update
 func (q *Query) Save(modelObj mdl.IModel) IQuery {
 	q.saveLck.Lock()
 	defer q.saveLck.Unlock()
@@ -680,6 +762,67 @@ func (q *Query) Save(modelObj mdl.IModel) IQuery {
 		return q
 	}
 
+	// I need load the old model to compare to the new model.
+	// Why? If the parent model has an array of nested model, and the parent model decided to remove one of the nested model,
+	// then the newer version of the nested model would not have the nested model, and I need to pull it up to compare to know.
+	// For pegged nested model, it means to delete it. For pegassoc, it means we need to remove the association.
+	// For many-to-many, we need to remove the entry from the join table.
+
+	oriModel := reflect.New(reflect.TypeOf(modelObj).Elem()).Interface().(mdl.IModel)
+	names := mdl.GetEmbeddedTablePaths(oriModel)
+	db2 := q.db
+
+	db2 = db2.Preload(clause.Associations)
+	for _, name := range names {
+		db2 = db2.Preload(name)
+	}
+
+	if q.Err = db2.Where("id = ?", modelObj.GetID()).Take(&oriModel).Error; q.Err != nil {
+		return q
+	}
+
+	// Nested model can be removed or created, so diff here
+	// If removed, delete it, if pegassoc changed, add or remove link
+	// If pegged, leave it untouched, we simply call save on each one later
+	if q.Err = UpdateNestedFields(q.db, oriModel, modelObj); q.Err != nil {
+		return q
+	}
+
+	// Instead of calling q.db.Session(&gorm.Session{FullSaveAssociations: true}).Save(modelObj)
+	// I want to update only the pegged only, so we save them ourselves.
+	// TODO: save many of the same table at a time
+
+	nested, err := GrabAllNestedPeggedStructs(modelObj) // map[level int]map[tableName string][]mdl.IModel
+	if err != nil {
+		q.Err = err
+		return q
+	}
+
+	// Since pegged, lower level first
+	for lvl := 0; lvl < len(nested)+1; lvl++ {
+		for tableName, marr := range nested[lvl] {
+			typ := reflect.TypeOf(reflect.ValueOf(marr[0]).Interface())
+			// Gorm needs an array with the actual type, not other interface type
+			arr := reflect.MakeSlice(reflect.SliceOf(typ), len(marr), len(marr))
+			for i, item := range marr {
+				arr.Index(i).Set(reflect.ValueOf(item))
+			}
+			arrPtr := arr.Interface()
+
+			q.Err = q.db.Table(tableName).Save(arrPtr).Error
+			if q.Err != nil {
+				PrintFileAndLine(q.Err)
+			}
+		}
+	}
+
+	// Save the parent model
+	// For embedded field calling Gorm Save() does the following:
+	// INSERT INTO "sec_level_ptr_dog" ("id","created_at","updated_at","deleted_at","name","color","top_level_id") VALUES
+	// ('c39853ec-21aa-46f0-ac38-e617b3196405','2023-03-30 10:51:26.484','2023-03-30 10:51:26.484',NULL,'NewBuddy',
+	// 'black','c39863aa-e984-4c19-8920-7043c5ff76e8') ON CONFLICT ("id") DO UPDATE SET "top_level_id"="excluded"."top_level_id"
+	// Pretty useless since we do not do full model save
+
 	q.Err = q.db.Save(modelObj).Error
 	if q.Err != nil {
 		PrintFileAndLine(q.Err)
@@ -687,8 +830,17 @@ func (q *Query) Save(modelObj mdl.IModel) IQuery {
 	return q
 }
 
-// Update only allow one level of builder
+// Update only allow the top-level update and top-level query.
+// Even update the top level and querying the inner one is difficult.
+// To update with a join:
+// https://stackoverflow.com/questions/7869592/how-to-do-an-update-join-in-postgresql
+// prob need to follow Nate Smith's solution.
+// Very difficult, and some alias may be necessary
 func (q *Query) Update(modelObj mdl.IModel, p *PredicateRelationBuilder) IQuery {
+	// Gorm update has a full-association mode
+	// db.Session(&gorm.Session{FullSaveAssociations: true}).Updates(&user)
+	// but we only want those that are pegged
+
 	defer resetWithoutResetError(q)
 
 	if q.Err != nil {
@@ -716,12 +868,17 @@ func (q *Query) Update(modelObj mdl.IModel, p *PredicateRelationBuilder) IQuery 
 		return q
 	}
 
-	field2Struct, _ := FindFieldNameToStructAndStructFieldNameIfAny(rel) // hacky
-	if field2Struct != nil {
+	if DesignatorContainsDot(rel) { // hacky
 		q.Err = fmt.Errorf("dot notation in update")
 		PrintFileAndLine(q.Err)
 		return q
 	}
+	// field2Struct, _ := FindFieldNameToStructAndStructFieldNameIfAny(rel) // hacky
+	// if field2Struct != nil {
+	// 	q.Err = fmt.Errorf("dot notation in update")
+	// 	PrintFileAndLine(q.Err)
+	// 	return q
+	// }
 
 	qstr, values, err := rel.BuildQueryStringAndValues(modelObj)
 	if err != nil {
@@ -736,8 +893,7 @@ func (q *Query) Update(modelObj mdl.IModel, p *PredicateRelationBuilder) IQuery 
 		updateMap[s] = values[i]
 	}
 
-	q.setLogger(db)
-	q.Err = db.Update(updateMap).Error
+	q.Err = db.Updates(updateMap).Error
 
 	return q
 }
@@ -759,13 +915,22 @@ func (q *Query) Error() error {
 	return err
 }
 
-func (q *Query) setLogger(db *gorm.DB) {
-	_, filepath, line, ok := runtime.Caller(2)
-	var source string
-	if ok {
-		source = fmt.Sprintf("%s:%d", filepath, line)
+// ------------------
+func SetQryLoggerWithConfig(db *gorm.DB, config logger.Config) {
+	loggerc := qrylogger.New(log.New(os.Stderr, "", log.LstdFlags), config)
+	db.Config.Logger = loggerc
+}
+
+func SetQryLogger(db *gorm.DB) {
+	config := logger.Config{
+		SlowThreshold:             200 * time.Millisecond,
+		LogLevel:                  logger.Warn,
+		IgnoreRecordNotFoundError: false,
+		Colorful:                  true,
 	}
-	db.SetLogger(NewLogger(source))
+
+	loggerc := qrylogger.New(log.New(os.Stderr, "", log.LstdFlags), config)
+	db.Config.Logger = loggerc
 }
 
 // ------------------

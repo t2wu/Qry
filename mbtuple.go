@@ -8,8 +8,8 @@ import (
 )
 
 type ModelAndBuilder struct {
-	modelObj     mdl.IModel    // THe mdl this predicate relation applies to
-	builderInfos []BuilderInfo // each builder is responsible for one-level of object for one mdl stack
+	modelObj     mdl.IModel    // The model this predicate relation applies to
+	builderInfos []BuilderInfo // each builder is responsible for one-level of object for one model stack
 }
 
 // type byNestingLevel []BuilderInfo
@@ -56,6 +56,6 @@ func (mb *ModelAndBuilder) GetAllPotentialJoinStructDesignators() ([]string, err
 }
 
 type BuilderInfo struct {
-	builder   *PredicateRelationBuilder
-	processed bool
+	builder *PredicateRelationBuilder
+	// processed bool
 }

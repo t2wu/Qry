@@ -1,11 +1,12 @@
 package mdl
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 
-	"github.com/t2wu/qry/datatype"
-
-	"github.com/t2wu/qry/gotag"
+	uuid "github.com/satori/go.uuid"
+	"github.com/t2wu/qry/qtag"
 
 	mapset "github.com/deckarep/golang-set/v2"
 )
@@ -25,8 +26,8 @@ func GetPeggedFieldNumAndType(modelObj IModel) []FieldNumAndType {
 	ret := make([]FieldNumAndType, 0)
 
 	for i := 0; i < v.NumField(); i++ {
-		tagVal := v.Type().Field(i).Tag.Get("betterrest")
-		if tagVal != "peg" {
+		tagVal := qtag.GetQryTag(v.Type().Field(i).Tag)
+		if tagVal != qtag.QryTagPeg {
 			continue
 		}
 
@@ -84,6 +85,96 @@ func GetPeggedFieldNumAndType(modelObj IModel) []FieldNumAndType {
 	// 	// f := typ.Field(i)
 	// 	// fieldName := v.Type().Field(i).Name
 	// }
+}
+
+func GetEmbeddedTablePaths(obj interface{}) []string {
+	initialPath := reflect.TypeOf(obj).Elem().Name()
+	names := getEmbeddedTablePathsCore(obj, initialPath)
+	for i, name := range names {
+		names[i] = strings.SplitN(name, ".", 2)[1]
+	}
+	return names
+}
+
+func getEmbeddedTablePathsCore(obj interface{}, path string) []string {
+	// This is used for Gorm v2 Preload
+	v := reflect.Indirect(reflect.ValueOf(obj))
+
+	names := make([]string, 0)
+
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		fieldType := v.Type().Field(i)
+
+		// Even if it isn't, don't we need to traverse into it to ask qry to load it?
+		if !qtag.IsAnyQryTag(v.Type().Field(i).Tag) { // no betterrest or qry tags for this field
+			continue
+		}
+
+		var nextType reflect.Type
+
+		switch field.Kind() {
+		case reflect.Slice: // handles slice of struct and slice of pointers..
+			nextType = v.Type().Field(i).Type.Elem()
+			if nextType.Kind() == reflect.Ptr {
+				nextType = nextType.Elem()
+			}
+
+		case reflect.Struct:
+			nextType = v.Type().Field(i).Type
+		case reflect.Ptr:
+			nextType = v.Type().Field(i).Type.Elem()
+		default:
+			continue
+		}
+
+		pathnow := path + "." + fieldType.Name
+		names = append(names, pathnow)
+		names = append(names, getEmbeddedTablePathsCore(reflect.New(nextType).Interface(), pathnow)...)
+	}
+	return names
+}
+
+func GetTypeNames(name string, v interface{}) []string {
+	val := reflect.ValueOf(v)
+	types := []string{}
+
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	if val.Kind() == reflect.Struct {
+		types = append(types, name)
+		for i := 0; i < val.NumField(); i++ {
+			// Even if it isn't, don't we need to traverse into it to ask qry to load it?
+			if !qtag.IsAnyQryTag(val.Type().Field(i).Tag) { // no betterrest or qry tags for this field
+				continue
+			}
+
+			field := val.Field(i)
+
+			if field.Kind() == reflect.Ptr {
+				field = field.Elem()
+			}
+
+			if field.Kind() == reflect.Struct {
+				fieldType := val.Type().Field(i)
+				nestedTypes := GetTypeNames(fieldType.Name, field.Interface())
+				types = append(types, nestedTypes...)
+			} else if field.Kind() == reflect.Slice {
+				for j := 0; j < field.Len(); j++ {
+					element := field.Index(j)
+					if element.Kind() == reflect.Ptr {
+						element = element.Elem()
+					}
+					nestedTypes := GetTypeNames(fmt.Sprintf("%s[%d]", val.Type().Field(i).Name, j), element.Interface())
+					types = append(types, nestedTypes...)
+				}
+			}
+		}
+	}
+
+	return types
 }
 
 func SetSliceAtFieldNum(modelObj IModel, fieldNum int, ele interface{}) {
@@ -173,22 +264,22 @@ func FindAllBetterRestPeggOrPegAssocIDs(modelObj interface{}, result *PeggedIDSe
 }
 
 // id is the id of the mdl v under processing
-func findAllBetterRestPeggOrPegAssocIDsCore(v reflect.Value, result *PeggedIDSearch, tableName string, id *datatype.UUID) error {
+func findAllBetterRestPeggOrPegAssocIDsCore(v reflect.Value, result *PeggedIDSearch, tableName string, id *uuid.UUID) error {
 	// v is the parent struct
 	// log.Println("...............FindAllPeggedIDs called:", v)
 	for i := 0; i < v.NumField(); i++ {
-		tagVal := v.Type().Field(i).Tag.Get("betterrest")
+		tagVal := qtag.GetQryTag(v.Type().Field(i).Tag)
 		// var mapping *map[string]map[FieldAsKey]ModelAndIDs
-		if gotag.TagValueHasPrefix(tagVal, "peg-ignore") {
+		if tagVal == qtag.QryTagPegIgnore {
 			continue
 		}
 
-		isPeg := gotag.TagValueHasPrefix(tagVal, "peg")
+		isPeg := (tagVal == qtag.QryTagPeg)
 		var rel Relation
 		if isPeg {
 			rel = RelationPeg
 		}
-		isPegAssoc := gotag.TagValueHasPrefix(tagVal, "pegassoc")
+		isPegAssoc := (tagVal == qtag.QryTagPegAssoc)
 		if isPegAssoc {
 			rel = RelationPegAssoc
 		}

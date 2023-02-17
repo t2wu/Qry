@@ -55,45 +55,45 @@ func FieldNameToColumn(modelObj IModel, fieldName string) (string, error) {
 	return columnName, nil
 }
 
-func FieldNameToJSONName(modelObj IModel, fieldName string) (string, error) {
-	toks := strings.SplitN(fieldName, ".", 2)
-	first := toks[0]
+// func FieldNameToJSONName(modelObj IModel, fieldName string) (string, error) {
+// 	toks := strings.SplitN(fieldName, ".", 2)
+// 	first := toks[0]
 
-	structField, ok := reflect.TypeOf(modelObj).Elem().FieldByName(first)
-	if !ok {
-		// debug.PrintStack()
-		return "", fmt.Errorf("field \"%s\" does not exist", first)
-	}
+// 	structField, ok := reflect.TypeOf(modelObj).Elem().FieldByName(first)
+// 	if !ok {
+// 		// debug.PrintStack()
+// 		return "", fmt.Errorf("field \"%s\" does not exist", first)
+// 	}
 
-	jsonName := strcase.LowerCamelCase(first)
+// 	jsonName := strcase.LowerCamelCase(first)
 
-	// custom column name, if any
-	if jsontag := structField.Tag.Get("json"); jsontag != "" {
-		// Now we found a match, and does it have a custom column name?
-		toks := strings.Split(strings.TrimSpace(jsontag), ";")
-		return toks[0], nil
-	}
+// 	// custom column name, if any
+// 	if jsontag := structField.Tag.Get("json"); jsontag != "" {
+// 		// Now we found a match, and does it have a custom column name?
+// 		toks := strings.Split(strings.TrimSpace(jsontag), ";")
+// 		return toks[0], nil
+// 	}
 
-	// Now, traverse the rest
-	if len(toks) > 1 {
-		typ := structField.Type
+// 	// Now, traverse the rest
+// 	if len(toks) > 1 {
+// 		typ := structField.Type
 
-		// Follows pointer, slice, slice to pointer, etc.
-		for {
-			if typ.Kind() == reflect.Ptr || typ.Kind() == reflect.Slice {
-				typ = typ.Elem()
-			} else {
-				break
-			}
-		}
+// 		// Follows pointer, slice, slice to pointer, etc.
+// 		for {
+// 			if typ.Kind() == reflect.Ptr || typ.Kind() == reflect.Slice {
+// 				typ = typ.Elem()
+// 			} else {
+// 				break
+// 			}
+// 		}
 
-		innerModel := reflect.New(typ).Interface().(IModel)
-		innerJSONName, err := FieldNameToJSONName(innerModel, toks[1])
-		if err != nil {
-			return "", err
-		}
-		return jsonName + "." + innerJSONName, nil
-	}
+// 		innerModel := reflect.New(typ).Interface().(IModel)
+// 		innerJSONName, err := FieldNameToJSONName(innerModel, toks[1])
+// 		if err != nil {
+// 			return "", err
+// 		}
+// 		return jsonName + "." + innerJSONName, nil
+// 	}
 
-	return jsonName, nil
-}
+// 	return jsonName, nil
+// }

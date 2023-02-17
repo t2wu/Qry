@@ -1,4 +1,4 @@
-package gotag
+package qtag
 
 import (
 	"testing"
@@ -12,10 +12,10 @@ func TestTagHasPrefix(t *testing.T) {
 		want   bool
 	}{
 		{tagVal: "peg", want: true},
-		{tagVal: "peg;", want: true},
-		{tagVal: "peg;xxx", want: true},
-		{tagVal: "xxx;peg;yyy", want: true},
-		{tagVal: "xxx;", want: false},
+		{tagVal: "peg,", want: true},
+		{tagVal: "peg,xxx", want: true},
+		{tagVal: "xxx,peg,yyy", want: true},
+		{tagVal: "xxx,", want: false},
 	}
 
 	for _, test := range tests {
@@ -31,7 +31,7 @@ func TestTagReturnField(t *testing.T) {
 		{tagVal: "", want: ""},
 		{tagVal: "peg", want: "peg"},
 		{tagVal: "peg:xxx", want: "peg:xxx"},
-		{tagVal: "xxx;peg:xyz;yyy", want: "peg:xyz"},
+		{tagVal: "xxx,peg:xyz,yyy", want: "peg:xyz"},
 	}
 
 	for _, test := range tests {

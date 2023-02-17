@@ -1,7 +1,6 @@
 package mdl
 
 import (
-	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,33 +14,33 @@ type TestThirdLevel struct {
 type TestSecondLevel struct {
 	BaseModel
 	Name        string
-	Arr         []TestThirdLevel `betterrest:"peg"`
+	Arr         []TestThirdLevel `qry:"peg"`
 	ArrUnpegged []TestThirdLevel
 }
 
 type TestStruct struct {
 	BaseModel
 
-	Arr []TestSecondLevel `betterrest:"peg"`
-	// ArrPtr []*TestSecondLevel `betterrest:"peg"` // Difficult case to handle, I'm not even sure if Gorm handles it.
+	Arr []TestSecondLevel `qry:"peg"`
+	// ArrPtr []*TestSecondLevel `qry:"peg"` // Difficult case to handle, I'm not even sure if Gorm handles it.
 
-	Second    TestSecondLevel  `betterrest:"peg"`
-	SecondPtr *TestSecondLevel `betterrest:"peg"`
+	Second    TestSecondLevel  `qry:"peg"`
+	SecondPtr *TestSecondLevel `qry:"peg"`
 }
 
 type TestSecondLevel2 struct {
 	BaseModel
 	Name        string
-	Arr         []TestThirdLevel `betterrest:"peg"`
+	Arr         []TestThirdLevel `qry:"peg"`
 	ArrUnpegged []TestThirdLevel
 }
 
 type TestStruct2 struct {
 	BaseModel
 
-	Arr       []TestSecondLevel2 `betterrest:"peg"`
-	Second    TestSecondLevel2   `betterrest:"peg"`
-	SecondPtr *TestSecondLevel2  `betterrest:"peg"`
+	Arr       []TestSecondLevel2 `qry:"peg"`
+	Second    TestSecondLevel2   `qry:"peg"`
+	SecondPtr *TestSecondLevel2  `qry:"peg"`
 }
 
 func TestModelTraversal(t *testing.T) {
@@ -94,7 +93,6 @@ func TestAppendToSliceAtFieldNum(t *testing.T) {
 		Name: "MyName",
 	}
 	AppendToSliceAtFieldNum(modelObj, 1, &ts)
-	log.Println("modelObj", modelObj)
 	if !assert.Len(t, modelObj.Arr, 1) {
 		return
 	}

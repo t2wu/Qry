@@ -7,23 +7,24 @@ import (
 	"github.com/t2wu/qry/datatype"
 	"github.com/t2wu/qry/mdl"
 
-	"github.com/jinzhu/gorm"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/gorm"
 )
 
 func TestDelete_PeggedStruct_ShouldBeDeleted(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	doguuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
+	u1 := datatype.NewUUID()
+	doguuid1 := datatype.NewUUID()
 
-	tm1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
-		Name:      "first",
+	tm1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
+		Name:      "UnderTest",
 		Age:       1,
-		FavoriteDog: Dog{
-			BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+		EmbedDog: SecLevelEmbedDog{
+			BaseModel: mdl.BaseModel{ID: &doguuid1},
 			Name:      "Buddy",
 			Color:     "black",
 		},
@@ -37,7 +38,7 @@ func TestDelete_PeggedStruct_ShouldBeDeleted(t *testing.T) {
 		return
 	}
 
-	err := Q(tx, C("ID =", doguuid1)).Find(&Dog{}).Error()
+	err := Q(tx, C("ID =", doguuid1)).Find(&SecLevelEmbedDog{}).Error()
 	if assert.Error(t, err) {
 		assert.True(t, errors.Is(err, gorm.ErrRecordNotFound))
 	}
@@ -47,15 +48,15 @@ func TestDelete_PeggedStructPtr_ShouldBeDeleted(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	doguuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
+	u1 := datatype.NewUUID()
+	doguuid1 := datatype.NewUUID()
 
-	tm1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	tm1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "first",
 		Age:       1,
-		EvilDog: &Dog{
-			BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+		PtrDog: &SecLevelPtrDog{
+			BaseModel: mdl.BaseModel{ID: &doguuid1},
 			Name:      "Buddy",
 			Color:     "black",
 		},
@@ -69,7 +70,7 @@ func TestDelete_PeggedStructPtr_ShouldBeDeleted(t *testing.T) {
 		return
 	}
 
-	err := Q(tx, C("ID =", doguuid1)).First(&Dog{}).Error()
+	err := Q(tx, C("ID =", doguuid1)).First(&SecLevelPtrDog{}).Error()
 	if assert.Error(t, err) {
 		assert.True(t, errors.Is(err, gorm.ErrRecordNotFound))
 	}
@@ -79,11 +80,11 @@ func TestDelete_PeggedAssocStruct_ShouldLeftIntact(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	catuuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
+	u1 := datatype.NewUUID()
+	catuuid1 := datatype.NewUUID()
 
-	cat := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid1)},
+	cat := SecLevelEmbedCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid1},
 		Name:      "Buddy",
 		Color:     "black",
 	}
@@ -92,11 +93,11 @@ func TestDelete_PeggedAssocStruct_ShouldLeftIntact(t *testing.T) {
 		return
 	}
 
-	tm1 := TestModel{
-		BaseModel:   mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
-		Name:        "first",
-		Age:         1,
-		FavoriteCat: cat,
+	tm1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
+		Name:      "first",
+		Age:       1,
+		EmbedCat:  cat,
 	}
 
 	if err := DB(tx).Create(&tm1).Error(); !assert.Nil(t, err) {
@@ -107,21 +108,21 @@ func TestDelete_PeggedAssocStruct_ShouldLeftIntact(t *testing.T) {
 		return
 	}
 
-	searched := Cat{}
+	searched := SecLevelEmbedCat{}
 	err := Q(tx, C("ID =", catuuid1)).First(&searched).Error()
 	assert.Nil(t, err)
-	assert.Nil(t, searched.TestModelID)
+	assert.Nil(t, searched.TopLevelID)
 }
 
 func TestDelete_PeggedAssocStructPtr_ShouldLeftIntact(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	catuuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
+	u1 := datatype.NewUUID()
+	catuuid1 := datatype.NewUUID()
 
-	cat := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid1)},
+	cat := SecLevelPtrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid1},
 		Name:      "Buddy",
 		Color:     "black",
 	}
@@ -130,11 +131,11 @@ func TestDelete_PeggedAssocStructPtr_ShouldLeftIntact(t *testing.T) {
 		return
 	}
 
-	tm1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	tm1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "first",
 		Age:       1,
-		EvilCat:   &cat,
+		PtrCat:    &cat,
 	}
 
 	if err := DB(tx).Create(&tm1).Error(); !assert.Nil(t, err) {
@@ -145,62 +146,56 @@ func TestDelete_PeggedAssocStructPtr_ShouldLeftIntact(t *testing.T) {
 		return
 	}
 
-	searched := Cat{}
+	searched := SecLevelPtrCat{}
 	err := Q(tx, C("ID =", catuuid1)).First(&searched).Error()
 	assert.Nil(t, err)
-	assert.Nil(t, searched.TestModelID)
+	assert.Nil(t, searched.TopLevelID)
 }
 
-func TestBatchDelete_PeggedArray(t *testing.T) {
+func TestBatchDelete_PeggedArray_ShouldNotBeFound(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	uuid2 := "95a71d20-e508-41b0-a6ea-901f96c2e721"
-	doguuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
-	doguuid2 := "673bd527-1af8-4f3b-b0d1-8158ee6f5e51"
+	u1 := datatype.NewUUID()
+	u2 := datatype.NewUUID()
+	doguuid1 := datatype.NewUUID()
+	doguuid2 := datatype.NewUUID()
 
-	testModel1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "TestModel1",
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
-				BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+				BaseModel: mdl.BaseModel{ID: &doguuid1},
 				Name:      "Buddy",
 				Color:     "black",
 			},
 		},
 	}
-	testModel2 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid2)},
+	testModel2 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u2},
 		Name:      "TestModel2",
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
-				BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid2)},
+				BaseModel: mdl.BaseModel{ID: &doguuid2},
 				Name:      "Happy",
 				Color:     "red",
 			},
 		},
 	}
 
-	mdl := []mdl.IModel{&testModel1, &testModel2}
+	tms := []TopLevel{testModel1, testModel2}
 
-	err := DB(tx).CreateMany(mdl).DeleteMany(mdl).Error()
+	err := DB(tx).Create(&tms).Delete(&tms).Error() // used to be CreateMany, DeleteMany
 	if assert.Nil(t, err) {
-		searched := make([]TestModel, 0)
-		err := Q(tx, C("ID IN", []*datatype.UUID{
-			datatype.NewUUIDFromStringNoErr(uuid1),
-			datatype.NewUUIDFromStringNoErr(uuid2),
-		})).Find(&searched).Error()
+		searched := make([]TopLevel, 0)
+		err := Q(tx, C("ID IN", []uuid.UUID{u1, u2})).Find(&searched).Error()
 		assert.Nil(t, err)
 		assert.Equal(t, 0, len(searched))
 		assert.Len(t, searched, 0)
 
-		dogSearched := make([]Dog, 0)
-		err = Q(tx, C("ID IN", []*datatype.UUID{
-			datatype.NewUUIDFromStringNoErr(doguuid1),
-			datatype.NewUUIDFromStringNoErr(doguuid2),
-		})).Find(&dogSearched).Error()
+		dogSearched := make([]SecLevelArrDog, 0)
+		err = Q(tx, C("ID IN", []uuid.UUID{u1, u2})).Find(&dogSearched).Error()
 
 		assert.Nil(t, err)
 		assert.Equal(t, 0, len(dogSearched))
@@ -211,121 +206,80 @@ func TestBatchDelete_PegAssocArray_ShouldLeaveItIntact(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	uuid2 := "95a71d20-e508-41b0-a6ea-901f96c2e721"
-	catuuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
-	catuuid2 := "673bd527-1af8-4f3b-b0d1-8158ee6f5e51"
+	u1 := datatype.NewUUID()
+	u2 := datatype.NewUUID()
+	catuuid1 := datatype.NewUUID()
+	catuuid2 := datatype.NewUUID()
 
-	cat1 := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid1)},
+	cat1 := SecLevelArrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid1},
 		Name:      "Kiddy1",
 		Color:     "black",
 	}
 
-	cat2 := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid2)},
+	cat2 := SecLevelArrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid2},
 		Name:      "Kiddy2",
 		Color:     "black",
 	}
 
-	err := DB(tx).CreateMany([]mdl.IModel{&cat1, &cat2}).Error()
+	err := DB(tx).Create(&[]SecLevelArrCat{cat1, cat2}).Error() // used to be CreateMany
 	if !assert.Nil(t, err) {
 		return
 	}
 
-	testModel1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "TestModel1",
-		Cats:      []Cat{cat1},
+		Cats:      []SecLevelArrCat{cat1},
 	}
-	testModel2 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid2)},
+	testModel2 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u2},
 		Name:      "TestModel2",
-		Cats:      []Cat{cat2},
+		Cats:      []SecLevelArrCat{cat2},
 	}
 
-	mdl := []mdl.IModel{&testModel1, &testModel2}
+	tms := []TopLevel{testModel1, testModel2}
 
-	err = DB(tx).CreateMany(mdl).DeleteMany(mdl).Error()
+	err = DB(tx).Create(&tms).Delete(&tms).Error() // used to be CreateMany, DeleteMany
 	if assert.Nil(t, err) {
-		searched := make([]TestModel, 0)
-		err := Q(tx, C("ID IN", []*datatype.UUID{
-			datatype.NewUUIDFromStringNoErr(uuid1),
-			datatype.NewUUIDFromStringNoErr(uuid2),
-		})).Find(&searched).Error()
+		searched := make([]TopLevel, 0)
+		err := Q(tx, C("ID IN", []uuid.UUID{u1, u2})).Find(&searched).Error()
 		assert.Nil(t, err)
 		assert.Equal(t, 0, len(searched))
 		assert.Len(t, searched, 0)
 
-		catSearched := make([]Cat, 0)
-		err = Q(tx, C("ID IN", []*datatype.UUID{
-			datatype.NewUUIDFromStringNoErr(catuuid1),
-			datatype.NewUUIDFromStringNoErr(catuuid2),
-		})).Find(&catSearched).Error()
+		catSearched := make([]SecLevelArrCat, 0)
+		err = Q(tx, C("ID IN", []uuid.UUID{catuuid1, catuuid2})).Find(&catSearched).Error()
 
 		assert.Nil(t, err)
 		if assert.Equal(t, 2, len(catSearched)) {
-			assert.Nil(t, catSearched[0].TestModelID)
-			assert.Nil(t, catSearched[1].TestModelID)
+			assert.Nil(t, catSearched[0].TopLevelID)
+			assert.Nil(t, catSearched[1].TopLevelID)
 		}
 	}
 }
 
-func TestDelete_PeggedArray_WithExistingID_ShouldGiveAnError(t *testing.T) {
-	tx := db.Begin()
-	defer tx.Rollback()
-
-	doguuid := "faea91d5-f376-400e-ac93-0109886db336"
-	tm1 := TestModel{BaseModel: mdl.BaseModel{ID: datatype.NewUUID()},
-		Name: "MyTestModel",
-		Age:  1,
-		Dogs: []Dog{
-			{
-				BaseModel: mdl.BaseModel{
-					ID: datatype.NewUUIDFromStringNoErr(doguuid),
-				},
-				Name:  "Buddy",
-				Color: "black",
-			},
-		},
-	}
-
-	if err := Q(tx).Create(&tm1).Error(); !assert.Nil(t, err) {
-		return
-	}
-
-	tm2 := TestModel{BaseModel: mdl.BaseModel{ID: datatype.NewUUID()},
-		Name: "MyTestModel2",
-		Age:  1,
-		Dogs: []Dog{
-			{
-				BaseModel: mdl.BaseModel{
-					ID: datatype.NewUUIDFromStringNoErr(doguuid),
-				},
-				Name:  "Buddy",
-				Color: "black",
-			},
-		},
-	}
-
-	err := Q(tx).Create(&tm2).Error()
-	assert.Error(t, err)
-}
-
 func TestDelete_PeggedArray_ShouldRemoveAllNestedFields(t *testing.T) {
-	uuid := "046bcadb-7127-47b1-9c1e-ff92ccea44b8"
-	doguuid := "faea91d5-f376-400e-ac93-0109886db336"
-	tm := TestModel{BaseModel: mdl.BaseModel{
-		ID: datatype.NewUUIDFromStringNoErr(uuid)},
+	u1 := datatype.NewUUID()
+	doguuid := datatype.NewUUID()
+	dogtoyuui := datatype.NewUUID()
+	tm := TopLevel{BaseModel: mdl.BaseModel{
+		ID: &u1},
 		Name: "MyTestModel",
 		Age:  1,
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
 				BaseModel: mdl.BaseModel{
-					ID: datatype.NewUUIDFromStringNoErr(doguuid),
+					ID: &doguuid,
 				},
 				Name:  "Buddy",
 				Color: "black",
+				DogToys: []ThirdLevelArrDogToy{
+					{
+						BaseModel: mdl.BaseModel{ID: &dogtoyuui},
+					},
+				},
 			},
 		},
 	}
@@ -342,23 +296,29 @@ func TestDelete_PeggedArray_ShouldRemoveAllNestedFields(t *testing.T) {
 		return
 	}
 
-	loadedTestModel := TestModel{}
-	err := Q(tx, C("ID =", uuid)).First(&loadedTestModel).Error()
+	loadedTestModel := TopLevel{}
+	err := Q(tx, C("ID =", u1)).First(&loadedTestModel).Error()
 	if assert.Error(t, err) {
 		assert.True(t, errors.Is(err, gorm.ErrRecordNotFound))
 	}
 
-	loadedDogModel := Dog{}
+	loadedDogModel := SecLevelArrDog{}
 	err = Q(tx, C("ID =", doguuid)).First(&loadedDogModel).Error()
+	if assert.Error(t, err) {
+		assert.True(t, errors.Is(err, gorm.ErrRecordNotFound))
+	}
+
+	dogToy := ThirdLevelArrDogToy{}
+	err = Q(tx, C("ID =", dogtoyuui)).First(&dogToy).Error()
 	if assert.Error(t, err) {
 		assert.True(t, errors.Is(err, gorm.ErrRecordNotFound))
 	}
 }
 
-func TestDelete_PeggedAssoc_Should_Leave_it_intact(t *testing.T) {
-	catuuid := "6a53ab29-72c9-4746-8e12-cb670d289231"
-	cat := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid)},
+func TestDelete_PeggedAssoc_ShouldLeaveItIntact(t *testing.T) {
+	catuuid := datatype.NewUUID()
+	cat := SecLevelArrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid},
 		Name:      "Buddy",
 		Color:     "black",
 	}
@@ -371,12 +331,11 @@ func TestDelete_PeggedAssoc_Should_Leave_it_intact(t *testing.T) {
 		return
 	}
 
-	uuid := "046bcadb-7127-47b1-9c1e-ff92ccea44b8"
-	tm := TestModel{BaseModel: mdl.BaseModel{
-		ID: datatype.NewUUIDFromStringNoErr(uuid)},
+	u1 := datatype.NewUUID()
+	tm := TopLevel{BaseModel: mdl.BaseModel{ID: &u1},
 		Name: "MyTestModel",
 		Age:  1,
-		Cats: []Cat{cat},
+		Cats: []SecLevelArrCat{cat},
 	}
 
 	err = Q(tx).Create(&tm).Delete(&tm).Error()
@@ -384,27 +343,27 @@ func TestDelete_PeggedAssoc_Should_Leave_it_intact(t *testing.T) {
 		return
 	}
 
-	loadedTestModel := TestModel{}
-	err = Q(tx, C("ID =", uuid)).First(&loadedTestModel).Error()
+	loadedTestModel := TopLevel{}
+	err = Q(tx, C("ID =", u1)).First(&loadedTestModel).Error()
 	if assert.Error(t, err) {
 		assert.True(t, errors.Is(err, gorm.ErrRecordNotFound))
 	}
 
-	loadedCatModel := Cat{}
+	loadedCatModel := SecLevelArrCat{}
 	err = Q(tx, C("ID =", catuuid)).First(&loadedCatModel).Error()
 	if assert.Nil(t, err) {
-		assert.Equal(t, catuuid, loadedCatModel.GetID().String())
-		assert.Nil(t, loadedCatModel.TestModelID)
+		assert.Equal(t, catuuid, *loadedCatModel.GetID())
+		assert.Nil(t, loadedCatModel.TopLevelID)
 	}
 }
 
 func TestDelete_criteria_works(t *testing.T) {
-	id1 := "046bcadb-7127-47b1-9c1e-ff92ccea44b8"
-	id2 := "395857f2-8d15-4808-a45e-76eca2d07994"
-	id3 := "2a8332b8-42a9-4115-8be7-55ba625fe574"
-	tm1 := TestModel{BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(id1)}, Name: "MyTestModel", Age: 1}
-	tm2 := TestModel{BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(id2)}, Name: "MyTestModel", Age: 1}
-	tm3 := TestModel{BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(id3)}, Name: "MyTestModel", Age: 3}
+	id1 := datatype.NewUUID()
+	id2 := datatype.NewUUID()
+	id3 := datatype.NewUUID()
+	tm1 := TopLevel{BaseModel: mdl.BaseModel{ID: &id1}, Name: "MyTestModel", Age: 1}
+	tm2 := TopLevel{BaseModel: mdl.BaseModel{ID: &id2}, Name: "MyTestModel", Age: 1}
+	tm3 := TopLevel{BaseModel: mdl.BaseModel{ID: &id3}, Name: "MyTestModel", Age: 3}
 
 	tx := db.Begin()
 	defer tx.Rollback()
@@ -414,31 +373,31 @@ func TestDelete_criteria_works(t *testing.T) {
 		return
 	}
 
-	tms := make([]TestModel, 0)
-	err = Q(tx, C("Age =", 3)).Find(&tms).Error()
+	tms := make([]TopLevel, 0)
+	err = Q(tx, C("Name =", "MyTestModel")).Find(&tms).Error()
 	if !assert.Nil(t, err) {
 		return
 	}
 
 	assert.Equal(t, 3, len(tms), "initial condition should be 3")
 
-	err = Q(tx, C("Age =", 3).And("Name =", "MyTestModel")).Delete(&TestModel{}).Error()
+	err = Q(tx, C("Age =", 3).And("Name =", "MyTestModel")).Delete(&TopLevel{}).Error()
 	if !assert.Nil(t, err) {
 		return
 	}
 
-	tms = make([]TestModel, 0)
+	tms = make([]TopLevel, 0)
 	if err := Q(tx, C("Name =", "MyTestModel")).Find(&tms).Error(); err != nil {
 		assert.Nil(t, err)
 		return
 	}
 
 	if assert.Equal(t, 2, len(tms), "Should still have 2 left after one is deleted") {
-		assert.Equal(t, id2, tms[0].ID.String())
-		assert.Equal(t, id1, tms[1].ID.String())
+		assert.Equal(t, id2, *tms[0].ID)
+		assert.Equal(t, id1, *tms[1].ID)
 	}
 
-	tms = make([]TestModel, 0)
+	tms = make([]TopLevel, 0)
 	err = Q(tx, C("Age =", 3).And("Name =", "same")).Find(&tms).Error()
 	if assert.Nil(t, err) {
 		return

@@ -296,17 +296,17 @@ func TestPredicateBuilder_whenFirstExistsAndInsertANestedBuilder_HasProperPredic
 }
 
 func TestPredicateBuilder_whenFirstWithNestedModel_HasProperPredicateRelations(t *testing.T) {
-	b := C("Dogs.DogToys.ToyName =", "DogToySameName")
+	b := C("EmbedDog.DogToys.ToyName =", "DogToySameName")
 	rel, err := b.GetPredicateRelation()
 	if !assert.Nil(t, err) {
 		return
 	}
-	s, vals, err := rel.BuildQueryStringAndValues(&TestModel{})
+	s, vals, err := rel.BuildQueryStringAndValues(&TopLevel{})
 	if !assert.Nil(t, err) {
 		return
 	}
 
-	assert.Equal(t, "\"dog_toy\".toy_name = ?", s) // table name + field name
+	assert.Equal(t, "\"third_level_embed_dog_toy\".toy_name = ?", s) // table name + field name
 	if assert.Equal(t, 1, len(vals)) {
 		assert.Equal(t, "DogToySameName", vals[0])
 	}

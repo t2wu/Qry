@@ -1,9 +1,11 @@
-package gotag
+package qtag
 
-import "strings"
+import (
+	"strings"
+)
 
 func TagValueHasPrefix(tagVal, prefix string) bool {
-	pairs := strings.Split(tagVal, ";")
+	pairs := strings.Split(tagVal, ",")
 	for _, pair := range pairs {
 		if strings.HasPrefix(pair, prefix) {
 			return true
@@ -13,7 +15,7 @@ func TagValueHasPrefix(tagVal, prefix string) bool {
 }
 
 func TagFieldByPrefix(tagVal, prefix string) string {
-	pairs := strings.Split(tagVal, ";")
+	pairs := strings.Split(tagVal, ",")
 	for _, pair := range pairs {
 		if strings.HasPrefix(pair, prefix) {
 			return pair

@@ -1,8 +1,8 @@
 package qry
 
 import (
-	"github.com/jinzhu/gorm"
 	"github.com/t2wu/qry/mdl"
+	"gorm.io/gorm"
 )
 
 type Order string
@@ -23,11 +23,9 @@ type IQuery interface {
 	Take(modelObj mdl.IModel) IQuery
 	First(modelObj mdl.IModel) IQuery
 	Find(modelObjs interface{}) IQuery
-	Count(modelObj mdl.IModel, no *int) IQuery
-	Create(modelObj mdl.IModel) IQuery
-	CreateMany(modelObjs []mdl.IModel) IQuery
-	Delete(modelObj mdl.IModel) IQuery
-	DeleteMany(modelObjs []mdl.IModel) IQuery
+	Count(modelObj mdl.IModel, no *int64) IQuery
+	Create(value interface{}) IQuery
+	Delete(value interface{}) IQuery
 	Save(modelObj mdl.IModel) IQuery
 	// Update(modelObjs interface{}, attrs ...interface{}) IQuery
 	Update(modelObj mdl.IModel, p *PredicateRelationBuilder) IQuery

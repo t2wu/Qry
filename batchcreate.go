@@ -4,6 +4,7 @@ import (
 	"reflect"
 
 	"github.com/t2wu/qry/mdl"
+	"github.com/t2wu/qry/qtag"
 )
 
 type BatchCreateData struct {
@@ -12,8 +13,9 @@ type BatchCreateData struct {
 
 func gatherModelToCreate(v reflect.Value, data *BatchCreateData) error {
 	for i := 0; i < v.NumField(); i++ {
-		t := pegPegassocOrPegManyToMany(v.Type().Field(i).Tag)
-		if t == "peg" {
+		t := qtag.GetQryTag(v.Type().Field(i).Tag)
+
+		if t == qtag.QryTagPeg {
 			switch v.Field(i).Kind() {
 			case reflect.Struct:
 				m := v.Field(i).Addr().Interface().(mdl.IModel)

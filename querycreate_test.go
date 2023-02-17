@@ -1,24 +1,22 @@
 package qry
 
 import (
-	"log"
 	"testing"
 
+	uuid "github.com/satori/go.uuid"
 	"github.com/t2wu/qry/datatype"
 	"github.com/t2wu/qry/mdl"
 
 	"github.com/stretchr/testify/assert"
 )
 
-// Create and Delete
-
 func TestCreate_PeggedArray(t *testing.T) {
-	uuid := "046bcadb-7127-47b1-9c1e-ff92ccea44b8"
-	tm := TestModel{BaseModel: mdl.BaseModel{
-		ID: datatype.NewUUIDFromStringNoErr(uuid)},
-		Name: "MyTestModel",
-		Age:  1,
-		Dogs: []Dog{
+	u1 := datatype.NewUUID()
+	tm := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
+		Name:      "MyTestModel",
+		Age:       3,
+		Dogs: []SecLevelArrDog{
 			{
 				Name:  "Buddy",
 				Color: "black",
@@ -33,13 +31,13 @@ func TestCreate_PeggedArray(t *testing.T) {
 		return
 	}
 
-	searched := TestModel{}
-	if err := Q(tx, C("ID =", uuid)).First(&searched).Error(); err != nil {
+	searched := TopLevel{}
+	if err := Q(tx, C("ID =", u1)).First(&searched).Error(); err != nil {
 		assert.Nil(t, err)
 		return
 	}
 
-	assert.Equal(t, uuid, searched.ID.String())
+	assert.Equal(t, u1, *searched.ID)
 	if assert.Equal(t, 1, len(searched.Dogs)) {
 		assert.Equal(t, "Buddy", searched.Dogs[0].Name)
 		assert.Equal(t, "black", searched.Dogs[0].Color)
@@ -47,11 +45,11 @@ func TestCreate_PeggedArray(t *testing.T) {
 }
 
 func TestCreate_PegAssocArray_ShouldAssociateCorrectly(t *testing.T) {
-	// First create a cat, and while creating TestModel, associate it with the cat
+	// First create a cat, and while creating TopLevel, associate it with the cat
 	// Then, when you load it, you should see the cat
-	catuuid := "6a53ab29-72c9-4746-8e12-cb670d289231"
-	cat := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid)},
+	catuuid := datatype.NewUUID()
+	cat := SecLevelArrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid},
 		Name:      "Buddy",
 		Color:     "black",
 	}
@@ -64,12 +62,12 @@ func TestCreate_PegAssocArray_ShouldAssociateCorrectly(t *testing.T) {
 		return
 	}
 
-	uuid := "046bcadb-7127-47b1-9c1e-ff92ccea44b8"
-	tm := TestModel{BaseModel: mdl.BaseModel{
-		ID: datatype.NewUUIDFromStringNoErr(uuid)},
+	u1 := datatype.NewUUID()
+	tm := TopLevel{BaseModel: mdl.BaseModel{
+		ID: &u1},
 		Name: "MyTestModel",
 		Age:  1,
-		Cats: []Cat{cat},
+		Cats: []SecLevelArrCat{cat},
 	}
 
 	err = Q(tx).Create(&tm).Error()
@@ -77,15 +75,15 @@ func TestCreate_PegAssocArray_ShouldAssociateCorrectly(t *testing.T) {
 		return
 	}
 
-	searched := TestModel{}
-	if err := Q(tx, C("ID =", uuid)).First(&searched).Error(); err != nil {
+	searched := TopLevel{}
+	if err := Q(tx, C("ID =", u1)).First(&searched).Error(); err != nil {
 		assert.Nil(t, err)
 		return
 	}
 
-	assert.Equal(t, uuid, searched.ID.String())
+	assert.Equal(t, u1, *searched.ID)
 	if assert.Equal(t, 1, len(searched.Cats)) { // should be associated
-		assert.Equal(t, catuuid, searched.Cats[0].ID.String())
+		assert.Equal(t, catuuid, *searched.Cats[0].ID)
 		assert.Equal(t, "Buddy", searched.Cats[0].Name)
 		assert.Equal(t, "black", searched.Cats[0].Color)
 	}
@@ -95,14 +93,14 @@ func TestCreate_PeggedStruct(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	doguuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
+	u1 := datatype.NewUUID()
+	doguuid1 := datatype.NewUUID()
 
-	testModel1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "TestModel1",
-		FavoriteDog: Dog{
-			BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+		EmbedDog: SecLevelEmbedDog{
+			BaseModel: mdl.BaseModel{ID: &doguuid1},
 			Name:      "Buddy",
 			Color:     "black",
 		},
@@ -113,28 +111,28 @@ func TestCreate_PeggedStruct(t *testing.T) {
 		return
 	}
 
-	searched := TestModel{}
-	err = Q(tx, C("ID =", uuid1)).First(&searched).Error()
+	searched := TopLevel{}
+	err = Q(tx, C("ID =", u1)).First(&searched).Error()
 	if !assert.Nil(t, err) {
 		return
 	}
 
-	assert.Equal(t, uuid1, searched.ID.String())
-	assert.Equal(t, doguuid1, searched.FavoriteDog.GetID().String())
+	assert.Equal(t, u1, *searched.ID)
+	assert.Equal(t, doguuid1, *searched.EmbedDog.GetID())
 }
 
 func TestCreate_PeggedStructPtr(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	doguuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
+	u1 := datatype.NewUUID()
+	doguuid1 := datatype.NewUUID()
 
-	testModel1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "TestModel1",
-		EvilDog: &Dog{
-			BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+		PtrDog: &SecLevelPtrDog{
+			BaseModel: mdl.BaseModel{ID: &doguuid1},
 			Name:      "Buddy",
 			Color:     "black",
 		},
@@ -145,133 +143,137 @@ func TestCreate_PeggedStructPtr(t *testing.T) {
 		return
 	}
 
-	searched := TestModel{}
-	err = Q(tx, C("ID =", uuid1)).First(&searched).Error()
+	searched := TopLevel{}
+	err = Q(tx, C("ID =", u1)).First(&searched).Error()
 	if !assert.Nil(t, err) {
 		return
 	}
 
-	assert.Equal(t, uuid1, searched.ID.String())
-	assert.Equal(t, doguuid1, searched.EvilDog.GetID().String())
+	assert.Equal(t, u1, *searched.ID)
+	assert.Equal(t, doguuid1, *searched.PtrDog.GetID())
 }
 
 func TestCreate_PeggedAssocStruct(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	catuuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
-	catuuid2 := "418d986b-72f7-462c-ab20-e7d5a2491b8c"
+	u1 := datatype.NewUUID()
+	catuuid1 := datatype.NewUUID()
+	catuuid2 := datatype.NewUUID()
 
-	cat := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid1)},
+	cat := SecLevelEmbedCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid1},
 		Name:      "Kiddy",
 		Color:     "black",
 	}
 
 	// Unrelated at shouldn't be affected
-	cat2 := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid2)},
+	unrelatedCat := SecLevelEmbedCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid2},
 		Name:      "Kiddy",
 		Color:     "black",
 	}
 
-	testModel1 := TestModel{
-		BaseModel:   mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
-		Name:        "TestModel1",
-		FavoriteCat: cat,
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
+		Name:      "TestModel1",
+		EmbedCat:  cat,
 	}
 
-	err := DB(tx).Create(&cat).Create(&cat2).Create(&testModel1).Error()
+	if err := DB(tx).Create(&unrelatedCat).Error(); !assert.Nil(t, err) {
+		return
+	}
+
+	err := DB(tx).Create(&cat).Create(&testModel1).Error()
 	if !assert.Nil(t, err) {
 		return
 	}
 
-	searched := TestModel{}
-	err = Q(tx, C("ID =", uuid1)).First(&searched).Error()
+	searched := TopLevel{}
+	err = Q(tx, C("ID =", u1)).First(&searched).Error()
 	if !assert.Nil(t, err) {
 		return
 	}
 
-	assert.Equal(t, uuid1, searched.ID.String())
-	assert.Equal(t, catuuid1, searched.FavoriteCat.GetID().String())
+	assert.Equal(t, u1, *searched.ID)
+	assert.Equal(t, catuuid1, *searched.EmbedCat.GetID())
 
 	// Unrelated at shouldn't be affected
-	othercat := Cat{}
+	othercat := SecLevelEmbedCat{}
 	err = Q(tx, C("ID =", catuuid2)).First(&othercat).Error()
 	if !assert.Nil(t, err) {
 		return
 	}
-	assert.Equal(t, catuuid2, othercat.GetID().String())
-	assert.Nil(t, othercat.TestModelID)
+	assert.Equal(t, catuuid2, *othercat.GetID())
+	assert.Nil(t, othercat.TopLevelID)
 }
 
 func TestCreate_PeggedAssocStructPtr(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	catuuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
-	catuuid2 := "418d986b-72f7-462c-ab20-e7d5a2491b8c"
+	u1 := datatype.NewUUID()
+	catuuid1 := datatype.NewUUID()
+	catuuid2 := datatype.NewUUID()
 
-	cat := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid1)},
+	relatedCat := SecLevelPtrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid1},
 		Name:      "Kiddy",
 		Color:     "black",
 	}
 
 	// Unrelated at shouldn't be affected
-	cat2 := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid2)},
+	unrelatedCat := SecLevelPtrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid2},
 		Name:      "Kiddy",
 		Color:     "black",
 	}
 
-	testModel1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "TestModel1",
-		EvilCat:   &cat,
+		PtrCat:    &relatedCat,
 	}
 
-	err := DB(tx).Create(&cat).Create(&cat2).Create(&testModel1).Error()
+	err := DB(tx).Create(&relatedCat).Create(&unrelatedCat).Create(&testModel1).Error()
 	if !assert.Nil(t, err) {
 		return
 	}
 
-	searched := TestModel{}
-	err = Q(tx, C("ID =", uuid1)).First(&searched).Error()
+	searched := TopLevel{}
+	err = Q(tx, C("ID =", u1)).First(&searched).Error()
 	if !assert.Nil(t, err) {
 		return
 	}
 
-	assert.Equal(t, uuid1, searched.ID.String())
-	if assert.NotNil(t, searched.EvilCat) {
-		assert.Equal(t, catuuid1, searched.EvilCat.GetID().String())
+	assert.Equal(t, u1, *searched.ID)
+	if assert.NotNil(t, searched.PtrCat) {
+		assert.Equal(t, catuuid1, *searched.PtrCat.GetID())
 	}
 
 	// Unrelated at shouldn't be affected
-	othercat := Cat{}
+	othercat := SecLevelPtrCat{}
 	err = Q(tx, C("ID =", catuuid2)).First(&othercat).Error()
 	if !assert.Nil(t, err) {
 		return
 	}
-	assert.Equal(t, catuuid2, othercat.GetID().String())
-	assert.Nil(t, othercat.TestModelID)
+	assert.Equal(t, catuuid2, *othercat.GetID())
+	assert.Nil(t, othercat.TopLevelID)
 }
 
 func TestCreate_PeggedArray_WithExistingID_ShouldGiveAnError(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid := datatype.NewUUID()
+	u1 := datatype.NewUUID()
 	doguuid := datatype.NewUUID()
-	tm1 := TestModel{BaseModel: mdl.BaseModel{
-		ID: uuid},
+	tm1 := TopLevel{BaseModel: mdl.BaseModel{
+		ID: &u1},
 		Name: "MyTestModel",
 		Age:  1,
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
-				BaseModel: mdl.BaseModel{ID: doguuid},
+				BaseModel: mdl.BaseModel{ID: &doguuid},
 				Name:      "Buddy",
 				Color:     "black",
 			},
@@ -283,15 +285,13 @@ func TestCreate_PeggedArray_WithExistingID_ShouldGiveAnError(t *testing.T) {
 		return
 	}
 
-	log.Println("=============================tim")
-
-	tm2 := TestModel{BaseModel: mdl.BaseModel{
-		ID: uuid},
+	tm2 := TopLevel{BaseModel: mdl.BaseModel{
+		ID: &u1},
 		Name: "MyTestModel",
 		Age:  1,
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
-				BaseModel: mdl.BaseModel{ID: doguuid},
+				BaseModel: mdl.BaseModel{ID: &doguuid},
 				Name:      "Buddy",
 				Color:     "black",
 			},
@@ -303,13 +303,13 @@ func TestCreate_PeggedArray_WithExistingID_ShouldGiveAnError(t *testing.T) {
 }
 
 func TestCreate_PeggedStruct_WithExistingID_ShouldGiveAnError(t *testing.T) {
-	doguuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
+	doguuid1 := datatype.NewUUID()
 
-	testModel1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUID()},
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: datatype.AddrOfUUID(datatype.NewUUID())},
 		Name:      "TestModel1",
-		FavoriteDog: Dog{
-			BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+		EmbedDog: SecLevelEmbedDog{
+			BaseModel: mdl.BaseModel{ID: &doguuid1},
 			Name:      "Buddy",
 			Color:     "black",
 		},
@@ -323,11 +323,11 @@ func TestCreate_PeggedStruct_WithExistingID_ShouldGiveAnError(t *testing.T) {
 	}
 
 	// Same doguuid1, and that should give an error
-	testModel2 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUID()},
+	testModel2 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: datatype.AddrOfUUID(datatype.NewUUID())},
 		Name:      "TestModel2",
-		FavoriteDog: Dog{
-			BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+		EmbedDog: SecLevelEmbedDog{
+			BaseModel: mdl.BaseModel{ID: &doguuid1},
 			Name:      "Buddy",
 			Color:     "black",
 		},
@@ -341,13 +341,13 @@ func TestCreate_PeggedStructPtr_WithExistingID_ShouldGiveAnError(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	doguuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
+	doguuid1 := datatype.NewUUID()
 
-	testModel1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUID()},
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: datatype.AddrOfUUID(datatype.NewUUID())},
 		Name:      "TestModel1",
-		EvilDog: &Dog{
-			BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+		PtrDog: &SecLevelPtrDog{
+			BaseModel: mdl.BaseModel{ID: &doguuid1},
 			Name:      "Buddy",
 			Color:     "black",
 		},
@@ -358,11 +358,11 @@ func TestCreate_PeggedStructPtr_WithExistingID_ShouldGiveAnError(t *testing.T) {
 		return
 	}
 
-	testModel2 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUID()},
+	testModel2 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: datatype.AddrOfUUID(datatype.NewUUID())},
 		Name:      "TestModel2",
-		EvilDog: &Dog{
-			BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+		PtrDog: &SecLevelPtrDog{
+			BaseModel: mdl.BaseModel{ID: &doguuid1},
 			Name:      "Buddy",
 			Color:     "black",
 		},
@@ -376,51 +376,50 @@ func TestBatchCreate_PeggedArray(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	uuid2 := "95a71d20-e508-41b0-a6ea-901f96c2e721"
-	doguuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
-	doguuid2 := "673bd527-1af8-4f3b-b0d1-8158ee6f5e51"
+	u1 := datatype.NewUUID()
+	u2 := datatype.NewUUID()
+	doguuid1 := datatype.NewUUID()
+	doguuid2 := datatype.NewUUID()
 
-	testModel1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "TestModel1",
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
-				BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+				BaseModel: mdl.BaseModel{ID: &doguuid1},
 				Name:      "Buddy",
 				Color:     "black",
 			},
 		},
 	}
-	testModel2 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid2)},
+	testModel2 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u2},
 		Name:      "TestModel2",
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
-				BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid2)},
+				BaseModel: mdl.BaseModel{ID: &doguuid2},
 				Name:      "Happy",
 				Color:     "red",
 			},
 		},
 	}
 
-	mdl := []mdl.IModel{&testModel1, &testModel2}
+	tms := []TopLevel{testModel1, testModel2}
 
-	searched := make([]TestModel, 0)
+	searched := make([]TopLevel, 0)
 
-	err := DB(tx).CreateMany(mdl).Error()
+	err := DB(tx).Create(&tms).Error() // used to be CreateMany
+
 	if assert.Nil(t, err) {
-		err := Q(tx, C("ID IN", []*datatype.UUID{
-			datatype.NewUUIDFromStringNoErr(uuid1),
-			datatype.NewUUIDFromStringNoErr(uuid2),
-		})).Find(&searched).Error()
+		err := Q(tx, C("ID IN", []uuid.UUID{u1, u2})).Find(&searched).Error()
 		if assert.Nil(t, err) {
 			assert.Len(t, searched, 2)
+			// From Gorm, created time is thes same and we can't differentiate between the two
 			if assert.Len(t, searched[0].Dogs, 1) {
-				assert.Equal(t, "Happy", searched[0].Dogs[0].Name)
+				assert.Contains(t, []string{"Happy", "Buddy"}, searched[0].Dogs[0].Name)
 			}
 			if assert.Len(t, searched[1].Dogs, 1) {
-				assert.Equal(t, "Buddy", searched[1].Dogs[0].Name)
+				assert.Contains(t, []string{"Happy", "Buddy"}, searched[1].Dogs[0].Name)
 			}
 		}
 	}
@@ -430,64 +429,64 @@ func TestBatchCreate_PeggedArray_WithExistingID_ShouldGiveError(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := "57403d17-01c7-40d2-ade3-6f8e8a27d786"
-	uuid2 := "95a71d20-e508-41b0-a6ea-901f96c2e721"
-	doguuid1 := "919b7d4b-35fd-43a9-b707-78a874870f16"
-	doguuid2 := "673bd527-1af8-4f3b-b0d1-8158ee6f5e51"
+	u1 := datatype.NewUUID()
+	u2 := datatype.NewUUID()
+	doguuid1 := datatype.NewUUID()
+	doguuid2 := datatype.NewUUID()
 
-	testModel1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "TestModel1",
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
-				BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+				BaseModel: mdl.BaseModel{ID: &doguuid1},
 				Name:      "Buddy",
 				Color:     "black",
 			},
 		},
 	}
-	testModel2 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid2)},
+	testModel2 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u2},
 		Name:      "TestModel2",
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
-				BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid2)},
+				BaseModel: mdl.BaseModel{ID: &doguuid2},
 				Name:      "Happy",
 				Color:     "red",
 			},
 		},
 	}
 
-	testModels := []mdl.IModel{&testModel1, &testModel2}
+	testModels := []TopLevel{testModel1, testModel2}
 
-	err := DB(tx).CreateMany(testModels).Error()
+	err := DB(tx).Create(&testModels).Error() // used to be CreateMany
 	assert.Nil(t, err)
 
-	testModel3 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	testModel3 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "TestModel3",
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
-				BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid1)},
+				BaseModel: mdl.BaseModel{ID: &doguuid1},
 				Name:      "Buddy",
 				Color:     "black",
 			},
 		},
 	}
-	testModel4 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid2)},
+	testModel4 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u2},
 		Name:      "TestModel4",
-		Dogs: []Dog{
+		Dogs: []SecLevelArrDog{
 			{
-				BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(doguuid2)},
+				BaseModel: mdl.BaseModel{ID: &doguuid2},
 				Name:      "Happy",
 				Color:     "red",
 			},
 		},
 	}
 
-	testModels = []mdl.IModel{&testModel3, &testModel4}
-	err = DB(tx).CreateMany(testModels).Error()
+	testModels = []TopLevel{testModel3, testModel4}
+	err = DB(tx).Create(&testModels).Error()
 	assert.Error(t, err)
 }
 
@@ -495,56 +494,54 @@ func TestBatchCreate_PeggAssociateArray_shouldAssociateCorrectly(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	uuid1 := datatype.NewUUID().String()
-	uuid2 := datatype.NewUUID().String()
-	catuuid1 := datatype.NewUUID().String()
-	catuuid2 := datatype.NewUUID().String()
+	u1 := datatype.NewUUID()
+	u2 := datatype.NewUUID()
+	catuuid1 := datatype.NewUUID()
+	catuuid2 := datatype.NewUUID()
 
-	cat1 := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid1)},
+	cat1 := SecLevelArrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid1},
 		Name:      "Kiddy1",
 		Color:     "black",
 	}
 
-	cat2 := Cat{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(catuuid2)},
+	cat2 := SecLevelArrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid2},
 		Name:      "Kiddy2",
 		Color:     "black",
 	}
 
-	err := DB(tx).CreateMany([]mdl.IModel{&cat1, &cat2}).Error()
+	err := DB(tx).Create(&[]SecLevelArrCat{cat1, cat2}).Error() // used to be CreateMany
 	if !assert.Nil(t, err) {
 		return
 	}
 
-	testModel1 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid1)},
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "TestModel1",
-		Cats:      []Cat{cat1},
+		Cats:      []SecLevelArrCat{cat1},
 	}
-	testModel2 := TestModel{
-		BaseModel: mdl.BaseModel{ID: datatype.NewUUIDFromStringNoErr(uuid2)},
+	testModel2 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u2},
 		Name:      "TestModel2",
-		Cats:      []Cat{cat2},
+		Cats:      []SecLevelArrCat{cat2},
 	}
 
-	mdl := []mdl.IModel{&testModel1, &testModel2}
+	tms := []TopLevel{testModel1, testModel2}
 
-	searched := make([]TestModel, 0)
+	searched := make([]TopLevel, 0)
 
-	err = DB(tx).CreateMany(mdl).Error()
+	err = DB(tx).Create(tms).Error()
 	if assert.Nil(t, err) {
-		err := Q(tx, C("ID IN", []*datatype.UUID{
-			datatype.NewUUIDFromStringNoErr(uuid1),
-			datatype.NewUUIDFromStringNoErr(uuid2),
-		})).Find(&searched).Error()
+		err := Q(tx, C("ID IN", []uuid.UUID{u1, u2})).Find(&searched).Error()
 		if assert.Nil(t, err) {
 			assert.Len(t, searched, 2)
+			// Gorm created at the same time now time stamp is the same so has to use assert.Contains
 			if assert.Len(t, searched[0].Cats, 1) {
-				assert.Equal(t, "Kiddy2", searched[0].Cats[0].Name)
+				assert.Contains(t, []string{"Kiddy1", "Kiddy2"}, searched[0].Cats[0].Name)
 			}
 			if assert.Len(t, searched[1].Cats, 1) {
-				assert.Equal(t, "Kiddy1", searched[1].Cats[0].Name)
+				assert.Contains(t, []string{"Kiddy1", "Kiddy2"}, searched[1].Cats[0].Name)
 			}
 		}
 	}

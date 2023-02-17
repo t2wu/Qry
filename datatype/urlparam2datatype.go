@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strconv"
 
+	uuid "github.com/satori/go.uuid"
 	"github.com/stoewer/go-strcase"
 )
 
@@ -14,15 +15,15 @@ func TransformFieldValue(typeInString string, fieldValue string) (interface{}, e
 	var retval interface{}
 	switch typeInString {
 	case "*datatype.UUID", "datatype.UUID":
-		var data *UUID
+		var u1 uuid.UUID
 		if fieldValue != "null" {
 			var err error
-			data, err = NewUUIDFromString(fieldValue)
+			u1, err = uuid.FromString(fieldValue)
 			if err != nil {
 				return nil, err
 			}
 		}
-		retval = data
+		retval = &u1
 	case "*bool", "bool":
 		data, err := strconv.ParseBool(fieldValue)
 		if err != nil {
@@ -82,9 +83,9 @@ func GetModelFieldTypeIfValid(modelObj interface{}, fieldName string) (reflect.T
 	if ok {
 		fieldType = structField.Type
 	} else if fieldName == "id" {
-		fieldType = reflect.TypeOf(&UUID{})
+		fieldType = reflect.TypeOf(&uuid.UUID{})
 	} else if fieldName == "Id" {
-		fieldType = reflect.TypeOf(&UUID{})
+		fieldType = reflect.TypeOf(&uuid.UUID{})
 	} else {
 		// It may not exists, or the field name is capitalized. search for JSON tag
 		// v.Type().FieldByIndex(0).Tag

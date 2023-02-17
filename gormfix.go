@@ -1,14 +1,17 @@
 package qry
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 
+	uuid "github.com/satori/go.uuid"
 	"github.com/t2wu/qry/datatype"
 	"github.com/t2wu/qry/mdl"
+	"github.com/t2wu/qry/qtag"
 
-	"github.com/jinzhu/gorm"
+	"gorm.io/gorm"
 )
 
 // Remove strategy
@@ -45,7 +48,7 @@ func DeleteModelFixManyToManyAndPegAndPegAssoc(db *gorm.DB, modelObj mdl.IModel)
 
 	// Now actually delete
 	for tblName := range car.toProcess {
-		if err := db.Unscoped().Delete(car.toProcess[tblName].modelObj, car.toProcess[tblName].ids).Error; err != nil {
+		if err := db.Table(tblName).Delete(car.toProcess[tblName].modelObj, car.toProcess[tblName].ids).Error; err != nil {
 			return err
 		}
 	}
@@ -102,8 +105,9 @@ func DeleteModelFixManyToManyAndPegAndPegAssoc(db *gorm.DB, modelObj mdl.IModel)
 // and we're deleting the pegged struct, the many-to-many relationship needs to be removed
 func markForDelete(db *gorm.DB, v reflect.Value, car cargo) error {
 	for i := 0; i < v.NumField(); i++ {
-		t := pegPegassocOrPegManyToMany(v.Type().Field(i).Tag)
-		if t == "peg" {
+		t := qtag.GetQryTag(v.Type().Field(i).Tag)
+		// t := pegPegassocOrPegManyToMany(v.Type().Field(i).Tag)
+		if t == qtag.QryTagPeg {
 			switch v.Field(i).Kind() {
 			case reflect.Struct:
 				m := v.Field(i).Addr().Interface().(mdl.IModel)
@@ -150,7 +154,7 @@ func markForDelete(db *gorm.DB, v reflect.Value, car cargo) error {
 					v.Field(i).IsValid() && v.Field(i).Elem().IsValid() {
 					imodel := v.Field(i).Interface().(mdl.IModel)
 					fieldTableName := mdl.GetTableNameFromIModel(imodel)
-					id := v.Field(i).Interface().(mdl.IModel).GetID()
+					id := imodel.GetID()
 
 					if _, ok := car.toProcess[fieldTableName]; ok {
 						mids := car.toProcess[fieldTableName]
@@ -167,7 +171,7 @@ func markForDelete(db *gorm.DB, v reflect.Value, car cargo) error {
 					}
 				}
 			}
-		} else if strings.HasPrefix(t, "pegassoc-manytomany") {
+		} else if t == qtag.QryTagPegAssocMany2Many {
 			// We're deleting. And now we have a many to many in here
 			// Remove the many to many
 			var m mdl.IModel
@@ -194,8 +198,13 @@ func removeManyToManyAssociationTableElem(db *gorm.DB, modelObj mdl.IModel) erro
 	// Model table itself
 	v := reflect.Indirect(reflect.ValueOf(modelObj))
 	for i := 0; i < v.NumField(); i++ {
-		tag := v.Type().Field(i).Tag.Get("betterrest")
-		if strings.HasPrefix(tag, "pegassoc-manytomany") {
+		tagAndFields := qtag.GetQryTagAndField(v.Type().Field(i).Tag)
+		if len(tagAndFields) == 0 {
+			continue
+		}
+		tagAndField := tagAndFields[0]
+
+		if tagAndField.Tag == qtag.QryTagPegAssocMany2Many {
 			// many to many, here we remove the entry in the actual immediate table
 			// because that's actually the link table. Thought we don't delete the
 			// Model table itself
@@ -204,7 +213,7 @@ func removeManyToManyAssociationTableElem(db *gorm.DB, modelObj mdl.IModel) erro
 			// I don't have access to the mdl, it's not registered as typestring
 			// nor part of the field type. It's a joining table between many to many
 
-			linkTableName := strings.Split(tag, ":")[1]
+			linkTableName := tagAndField.Field
 			typ := v.Type().Field(i).Type.Elem() // Get the type of the element of slice
 			m2, _ := reflect.New(typ).Interface().(mdl.IModel)
 			fieldTableName := mdl.GetTableNameFromIModel(m2)
@@ -218,7 +227,7 @@ func removeManyToManyAssociationTableElem(db *gorm.DB, modelObj mdl.IModel) erro
 				allIds := make([]interface{}, 0, 10)
 				allIds = append(allIds, modelObj.GetID().String())
 				for j := 0; j < fieldVal.Len(); j++ {
-					idToDel := fieldVal.Index(j).FieldByName("ID").Interface().(*datatype.UUID)
+					idToDel := fieldVal.Index(j).FieldByName("ID").Interface().(*uuid.UUID)
 					allIds = append(allIds, idToDel.String())
 				}
 
@@ -234,18 +243,9 @@ func removeManyToManyAssociationTableElem(db *gorm.DB, modelObj mdl.IModel) erro
 	return nil
 }
 
-func pegPegassocOrPegManyToMany(tag reflect.StructTag) string {
-	for _, tag := range strings.Split(tag.Get("betterrest"), ";") {
-		if tag == "peg" || tag == "pegassoc" || strings.HasPrefix(tag, "pegassoc-manytomany") {
-			return tag
-		}
-	}
-	return ""
-}
-
 func checkIDsNotFound(db *gorm.DB, nestedIModels []mdl.IModel) error {
 	if len(nestedIModels) > 0 {
-		ids := make([]*datatype.UUID, 0)
+		ids := make([]*uuid.UUID, 0)
 		for _, nestedIModel := range nestedIModels {
 			id := nestedIModel.GetID()
 			if id != nil {
@@ -261,7 +261,7 @@ func checkIDsNotFound(db *gorm.DB, nestedIModels []mdl.IModel) error {
 		tableName := mdl.GetTableNameFromIModel(nestedIModels[0])
 		var count int64
 		err := db.Table(tableName).Where("id IN (?)", ids).Count(&count).Error
-		if err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err // some real error
 		}
 		if count != 0 {
@@ -276,8 +276,8 @@ func RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db *gorm.DB, modelObj mdl.IMode
 	v := reflect.Indirect(reflect.ValueOf(modelObj))
 
 	for i := 0; i < v.NumField(); i++ {
-		tag := v.Type().Field(i).Tag.Get("betterrest")
-		if tag == "peg" {
+		tag := qtag.GetQryTag(v.Type().Field(i).Tag)
+		if tag == qtag.QryTagPeg {
 			// if it's pegged and it's creating, it should be new ID, so we set it nil..
 			// or at least it shouldn't exists! (TODO)
 			// what if it's the third level?
@@ -348,9 +348,9 @@ func RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db *gorm.DB, modelObj mdl.IMode
 func CreatePeggedAssocFields(db *gorm.DB, modelObj mdl.IModel) (err error) {
 	v := reflect.Indirect(reflect.ValueOf(modelObj))
 	for i := 0; i < v.NumField(); i++ {
-		tag := v.Type().Field(i).Tag.Get("betterrest")
+		tag := qtag.GetQryTag(v.Type().Field(i).Tag)
 		// columnName := v.Type().Field(i).Name
-		if tag == "pegassoc" {
+		if tag == qtag.QryTagPegAssoc {
 			fieldVal := v.Field(i)
 			switch fieldVal.Kind() {
 			case reflect.Slice:
@@ -408,4 +408,238 @@ func CreatePeggedAssocFields(db *gorm.DB, modelObj mdl.IModel) (err error) {
 func isNil(a interface{}) bool {
 	defer func() { recover() }()
 	return a == nil || reflect.ValueOf(a).IsNil()
+}
+
+func UpdateNestedFields(db *gorm.DB, oldModelObj mdl.IModel, newModelObj mdl.IModel) (err error) {
+	// Indirect is dereference
+	// Interface() is extract content than re-wrap to interface
+	// Since reflect.New() returns pointer to the object, after reflect.ValueOf
+	// We need to deference it, hence "Indirect", now v1 and v2 are the actual object, not
+	// ptr to objects
+	v1 := reflect.Indirect(reflect.ValueOf(oldModelObj))
+	v2 := reflect.Indirect(reflect.ValueOf(newModelObj))
+
+	for i := 0; i < v1.NumField(); i++ {
+		tagNFields := qtag.GetQryTagAndField(v1.Type().Field(i).Tag)
+		if len(tagNFields) != 0 { // peg, pegassoc, or pegassoc-many2many
+			tagNField := tagNFields[0]
+
+			fieldVal1 := v1.Field(i)
+			fieldVal2 := v2.Field(i)
+
+			set1 := datatype.NewSetString()
+			set2 := datatype.NewSetString()
+
+			oriM := make(map[string]interface{})
+			newM := make(map[string]interface{})
+
+			switch fieldVal1.Kind() {
+			case reflect.Slice:
+				// Loop through the slice
+				for j := 0; j < fieldVal1.Len(); j++ {
+					// For example, each fieldVal1.Index(j) is a model object
+					id := fieldVal1.Index(j).FieldByName("ID").Interface().(*uuid.UUID)
+					set1.Add(id.String())
+
+					oriM[id.String()] = fieldVal1.Index(j).Addr().Interface() // re-wrap a dock
+				}
+
+				for j := 0; j < fieldVal2.Len(); j++ {
+					id := fieldVal2.Index(j).FieldByName("ID").Interface().(*uuid.UUID)
+					if id != nil {
+						// ID doesn't exist? ignore, it's a new entry without ID
+						set2.Add(id.String())
+						newM[id.String()] = fieldVal2.Index(j).Addr().Interface()
+					}
+				}
+
+				// remove when stuff in the old set that's not in the new set
+				setIsGone := set1.Difference(set2)
+
+				for uuid1 := range setIsGone.List {
+					modelToDel := oriM[uuid1]
+
+					if tagNField.Tag == qtag.QryTagPeg {
+						if err := db.Delete(modelToDel).Error; err != nil {
+							return err
+						}
+						// Similar to directly deleting the model,
+						// just deleting it won't work, need to traverse down the chain
+						if err := DeleteModelFixManyToManyAndPegAndPegAssoc(db, modelToDel.(mdl.IModel)); err != nil {
+							return err
+						}
+					} else if tagNField.Tag == qtag.QryTagPegAssoc {
+						columnName := v1.Type().Field(i).Name
+						// assocModel := reflect.Indirect(reflect.ValueOf(modelToDel)).Type().Name()
+						// fieldName := v1.Type().Field(i).Name
+						// fieldName = fieldName[0 : len(fieldName)-1] // get rid of s
+						// tableName := letters.CamelCaseToPascalCase(fieldName)
+						if err = db.Model(oldModelObj).Association(columnName).Delete(modelToDel); err != nil {
+							return err
+						}
+					} else if tagNField.Tag == qtag.QryTagPegAssocMany2Many {
+						// many to many, here we remove the entry in the actual immediate table
+						// because that's actually the link table. Thought we don't delete the
+						// Model table itself
+						linkTableName := tagNField.Field
+						// Get the base type of this field
+
+						inter := v1.Field(i).Interface()
+						typ := reflect.TypeOf(inter).Elem() // Get the type of the element of slice
+						m2, _ := reflect.New(typ).Interface().(mdl.IModel)
+
+						fieldTableName := mdl.GetTableNameFromIModel(m2)
+						fieldIDName := fieldTableName + "_id"
+
+						selfTableName := mdl.GetTableNameFromIModel(oldModelObj)
+						selfID := selfTableName + "_id"
+
+						// The following line seems to puke on a many-to-many, I hope I don't need it anywhere
+						// else in another many-to-many
+						// idToDel := reflect.Indirect(reflect.ValueOf(modelToDel)).Elem().FieldByName("ID").Interface()
+						idToDel := reflect.Indirect(reflect.ValueOf(modelToDel)).FieldByName("ID").Interface()
+
+						stmt := fmt.Sprintf("DELETE FROM \"%s\" WHERE \"%s\" = ? AND \"%s\" = ?",
+							linkTableName, fieldIDName, selfID)
+						err := db.Exec(stmt, idToDel.(*uuid.UUID).String(), oldModelObj.GetID().String()).Error
+						if err != nil {
+							return err
+						}
+
+					}
+				}
+
+				setIsNew := set2.Difference(set1)
+				for uuid := range setIsNew.List {
+					modelToAdd := newM[uuid]
+					if tagNField.Tag == qtag.QryTagPeg {
+						// Don't need peg, because gorm already does auto-create by default
+						// for truly nested data without endpoint
+						// err = db.Save(modelToAdd).Error
+						// if err != nil {
+						// 	return err
+						// }
+
+						// Wait does Gormv2 do that? Need to test.
+					} else if tagNField.Tag == qtag.QryTagPegAssoc {
+						columnName := v1.Type().Field(i).Name
+
+						// If the new model doesn't exist, it is an error.
+						// If it exists, all we have to do is update the parent table reference of the nested table
+						if err = db.Model(modelToAdd).Update(fmt.Sprintf("%s = ?", columnName), newModelObj.GetID()).Error; err != nil {
+							return err
+						}
+					}
+					//else if strings.HasPrefix(tag, "pegassoc-manytomany") {
+					// No need either, Gorm already creates it
+					// It's the preloading that's the issue.
+					//}
+				}
+
+				// both exists
+				setMayBeEdited := set1.Intersect(set2)
+				for uuid := range setMayBeEdited.List {
+					oriModelToEdit := oriM[uuid]
+					newModelToEdit := newM[uuid]
+					if tagNField.Tag == qtag.QryTagPeg {
+						if err := UpdateNestedFields(db, oriModelToEdit.(mdl.IModel), newModelToEdit.(mdl.IModel)); err != nil {
+							return err
+						}
+					}
+				}
+
+			case reflect.Struct:
+				// If it's peg or peg associate as long as it is here, it doesn't matter, we dig in.
+				if err := UpdateNestedFields(db, fieldVal1.Addr().Interface().(mdl.IModel), fieldVal2.Addr().Interface().(mdl.IModel)); err != nil {
+					return err
+				}
+			default:
+				// embedded object is considered part of the structure, so no removal
+			}
+		}
+	}
+
+	return nil
+}
+
+func GrabAllNestedPeggedStructs(modelObj mdl.IModel) (map[int]map[string][]mdl.IModel, error) {
+	// level -> tblname -> models, level help us in that we create the highest-level one first
+	tblGrps := make(map[int]map[string][]mdl.IModel, 0)
+	return tblGrps, grabAllNestedPeggedStructs_core(modelObj, &tblGrps, 1)
+}
+
+func grabAllNestedPeggedStructs_core(modelObj mdl.IModel, tblGrps *map[int]map[string][]mdl.IModel, level int) (err error) {
+	val := reflect.Indirect(reflect.ValueOf(modelObj))
+
+	tblGrps2 := *tblGrps
+
+	for i := 0; i < val.NumField(); i++ {
+		tag := val.Type().Field(i).Tag
+		if qtag.GetQryTag(tag) == qtag.QryTagPeg {
+			field := val.Field(i)
+			switch field.Kind() {
+			case reflect.Slice:
+				for j := 0; j < field.Len(); j++ {
+					// m := field.Index(j)
+					m := field.Index(j).Addr().Interface().(mdl.IModel)
+					if m != nil {
+						// In case embedded struct doesn't have a parent ID reference, fill it
+						parentTableRef := strings.Split(reflect.TypeOf(modelObj).String(), ".")[1] + "ID"
+						reflectParentTableRef := field.Index(j).FieldByName(parentTableRef)
+						parentID := reflectParentTableRef.Interface().(*uuid.UUID)
+						if parentID == nil {
+							reflectParentTableRef.Set(reflect.ValueOf(modelObj.GetID()))
+						}
+
+						tableName := mdl.GetTableNameFromIModel(m)
+						if tblGrps2[level] == nil {
+							tblGrps2[level] = make(map[string][]mdl.IModel, 0)
+						}
+						tblGrps2[level][tableName] = append(tblGrps2[level][tableName], m)
+
+						if err := grabAllNestedPeggedStructs_core(m, tblGrps, level+1); err != nil {
+							return err
+						}
+					}
+				}
+			case reflect.Ptr:
+				if !field.IsNil() {
+					m := field.Interface().(mdl.IModel)
+					if m != nil {
+						tableName := mdl.GetTableNameFromIModel(m)
+						if tblGrps2[level] == nil {
+							tblGrps2[level] = make(map[string][]mdl.IModel, 0)
+						}
+						tblGrps2[level][tableName] = append(tblGrps2[level][tableName], m)
+
+						if err := grabAllNestedPeggedStructs_core(m, tblGrps, level+1); err != nil {
+							return err
+						}
+					}
+				}
+			case reflect.Struct:
+				m := field.Addr().Interface().(mdl.IModel)
+				if m != nil {
+					// In case embedded struct doesn't have a parent ID reference, fill it
+					parentTableRef := strings.Split(reflect.TypeOf(modelObj).String(), ".")[1] + "ID"
+					reflectParentTableRef := field.FieldByName(parentTableRef)
+					parentID := reflectParentTableRef.Interface().(*uuid.UUID)
+					if parentID == nil {
+						reflectParentTableRef.Set(reflect.ValueOf(modelObj.GetID()))
+					}
+
+					tableName := mdl.GetTableNameFromIModel(m)
+					if tblGrps2[level] == nil {
+						tblGrps2[level] = make(map[string][]mdl.IModel, 0)
+					}
+					tblGrps2[level][tableName] = append(tblGrps2[level][tableName], m)
+
+					if err := grabAllNestedPeggedStructs_core(m, tblGrps, level+1); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
 }

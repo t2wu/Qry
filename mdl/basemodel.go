@@ -3,10 +3,11 @@ package mdl
 import (
 	"time"
 
+	uuid "github.com/satori/go.uuid"
 	"github.com/t2wu/qry/datatype"
 
 	"github.com/asaskevich/govalidator"
-	"github.com/jinzhu/gorm"
+	"gorm.io/gorm"
 )
 
 // BaseModel is the base class domain mdl which has standard ID
@@ -15,10 +16,10 @@ type BaseModel struct {
 	// ID        *datatype.UUID `gorm:"type:binary(16);primary_key;" json:"id"`
 
 	// For Postgres
-	ID        *datatype.UUID `gorm:"type:uuid;primary_key;" json:"id"`
-	CreatedAt time.Time      `sql:"index" json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	DeletedAt *time.Time     `sql:"index" json:"deletedAt"`
+	ID        *uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	CreatedAt time.Time  `sql:"index" json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
+	DeletedAt *time.Time `sql:"index" json:"deletedAt"`
 
 	// Ownership with the most previledged permission can delete the device and see every field.
 	// So there can be an ownership number, say 3, and that maps to a permission type
@@ -31,12 +32,12 @@ type BaseModel struct {
 }
 
 // GetID Get the ID field of the mdl (useful when using interface)
-func (b *BaseModel) GetID() *datatype.UUID {
+func (b *BaseModel) GetID() *uuid.UUID {
 	return b.ID
 }
 
 // SetID Set the ID field of the mdl (useful when using interface)
-func (b *BaseModel) SetID(id *datatype.UUID) {
+func (b *BaseModel) SetID(id *uuid.UUID) {
 	b.ID = id
 }
 
@@ -57,10 +58,10 @@ func (b *BaseModel) GetDeletedAt() *time.Time {
 
 // BeforeCreate sets a UUID if no ID is set
 // (this is Gorm's hookpoint)
-func (b *BaseModel) BeforeCreate(scope *gorm.Scope) error {
+func (b *BaseModel) BeforeCreate(tx *gorm.DB) error {
 	if b.ID == nil {
 		uuid := datatype.NewUUID()
-		return scope.SetColumn("ID", uuid)
+		tx.Statement.SetColumn("ID", uuid)
 	}
 
 	return nil
@@ -79,8 +80,8 @@ type IModel interface {
 	// Permissions(role UserRole, scope *string) jsontrans.JSONFields
 
 	// The following two avoids having to use reflection to access ID
-	GetID() *datatype.UUID
-	SetID(id *datatype.UUID)
+	GetID() *uuid.UUID
+	SetID(id *uuid.UUID)
 	GetCreatedAt() *time.Time
 	GetUpdatedAt() *time.Time
 	// GetDeletedAt() // we don't use this one
