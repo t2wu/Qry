@@ -14,18 +14,17 @@ type TopLevel struct {
 
 	Dogs []SecLevelArrDog `qry:"peg" gorm:"constraint:OnDelete:CASCADE;" json:"dogs" `
 
-	// Any field with pegassoc should have association_autoupdate:false AND
 	// foreign key constraint for cat should have SET NULL on delete and update
-	// Cats []Cat `qry:"pegassoc" gorm:"constraint:OnDelete:SET NULL;" gorm:"association_autoupdate:false;" json:"cats"`
+	// Cats []Cat `qry:"pegassoc" gorm:"constraint:OnDelete:SET NULL;" gorm:"" json:"cats"`
 	Cats []SecLevelArrCat `qry:"pegassoc" gorm:"constraint:OnDelete:SET NULL;" json:"cats"`
 
 	// Gorm cannot differentiate between Dogs and FavoriteDog
 	// so if you set FavoriteDog and try to load Dogs it will also appear there
 	EmbedDog SecLevelEmbedDog `qry:"peg" gorm:"constraint:OnDelete:CASCADE;" json:"favoriteDog"`
-	EmbedCat SecLevelEmbedCat `qry:"pegassoc" gorm:"constraint:OnDelete:SET NULL;association_autoupdate:false;" json:"favoriteCat"`
+	EmbedCat SecLevelEmbedCat `qry:"pegassoc" gorm:"constraint:OnDelete:SET NULL;" json:"favoriteCat"`
 
 	PtrDog *SecLevelPtrDog `qry:"peg" gorm:"constraint:OnDelete:CASCADE;" json:"evilDog"`
-	PtrCat *SecLevelPtrCat `qry:"pegassoc" gorm:"constraint:OnDelete:SET NULL;association_autoupdate:false;" json:"evilCat"`
+	PtrCat *SecLevelPtrCat `qry:"pegassoc" gorm:"constraint:OnDelete:SET NULL;" json:"evilCat"`
 }
 
 // --- dog ---

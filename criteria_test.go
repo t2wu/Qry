@@ -3,8 +3,11 @@ package qry
 import (
 	"reflect"
 	"testing"
+	"time"
 
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/t2wu/qry/datatype"
 )
 
 // --- Predicate ---
@@ -205,571 +208,575 @@ func TestBuildQueryStringAndValueForAllTypeOfConditions_Works(t *testing.T) {
 	}
 }
 
-// func TestBuildQueryStringAndValue_Escape_Rawtring(t *testing.T) {
-// 	tests := []struct {
-// 		predicate *Predicate
-// 		want      struct {
-// 			s string
-// 		}
-// 	}{
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "Age",
-// 				Cond:  PredicateCondEQ,
-// 				Value: &Escape{Value: "20"},
-// 			},
-// 			want: struct {
-// 				s string
-// 			}{s: "\"top_level\".age = 20"},
-// 		},
-// 	}
-// 	for _, test := range tests {
-// 		s, vals, err := test.predicate.BuildQueryStringAndValues(&TestModel{})
-// 		assert.Nil(t, err)
-// 		assert.Equal(t, test.want.s, s)
-// 		assert.Equal(t, 0, len(vals))
-// 	}
-// }
+func TestBuildQueryStringAndValue_Escape_Rawtring(t *testing.T) {
+	tests := []struct {
+		predicate *Predicate
+		want      struct {
+			s string
+		}
+	}{
+		{
+			predicate: &Predicate{
+				Field: "Age",
+				Cond:  PredicateCondEQ,
+				Value: &Escape{Value: "20"},
+			},
+			want: struct {
+				s string
+			}{s: "\"top_level\".age = 20"},
+		},
+	}
+	for _, test := range tests {
+		s, vals, err := test.predicate.BuildQueryStringAndValues(&TopLevel{})
+		assert.Nil(t, err)
+		assert.Equal(t, test.want.s, s)
+		assert.Equal(t, 0, len(vals))
+	}
+}
 
-// func TestBuildQueryStringAndValueForInClause_Works(t *testing.T) {
-// 	tests := []struct {
-// 		predicate *Predicate
-// 		want      struct {
-// 			s string
-// 			v []string
-// 		}
-// 	}{
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "ID",
-// 				Cond:  PredicateCondIN,
-// 				Value: []uuid.UUID{
-// 					uuid.FromStringOrNil(uuid1),
-// 					uuid.FromStringOrNil(uuid2),
-// 					uuid.FromStringOrNil(uuid4),
-// 				},
-// 			},
-// 			want: struct {
-// 				s string
-// 				v []string
-// 			}{s: "\"top_level\".id IN (?)", v: []string{uuid1, uuid2, uuid4}},
-// 		},
-// 	}
-// 	for _, test := range tests {
-// 		s, vals, err := test.predicate.BuildQueryStringAndValues(&TestModel{})
-// 		assert.Nil(t, err)
-// 		assert.Equal(t, test.want.s, s)
+func TestBuildQueryStringAndValueForInClause_Works(t *testing.T) {
+	u1 := datatype.NewUUID()
+	u2 := datatype.NewUUID()
+	u3 := datatype.NewUUID()
 
-// 		if assert.Equal(t, 1, len(vals)) {
-// 			v2, ok := vals[0].([]uuid.UUID)
-// 			if ok {
-// 				assert.Equal(t, test.want.v[0], v2[0].String())
-// 				assert.Equal(t, test.want.v[1], v2[1].String())
-// 				assert.Equal(t, test.want.v[2], v2[2].String())
-// 			} else {
-// 				assert.Fail(t, "wrong type")
-// 			}
-// 		}
-// 	}
-// }
+	tests := []struct {
+		predicate *Predicate
+		want      struct {
+			s string
+			v []uuid.UUID
+		}
+	}{
+		{
+			predicate: &Predicate{
+				Field: "ID",
+				Cond:  PredicateCondIN,
+				Value: []uuid.UUID{
+					u1,
+					u2,
+					u3,
+				},
+			},
+			want: struct {
+				s string
+				v []uuid.UUID
+			}{s: "\"top_level\".id IN (?)", v: []uuid.UUID{u1, u2, u3}},
+		},
+	}
+	for _, test := range tests {
+		s, vals, err := test.predicate.BuildQueryStringAndValues(&TopLevel{})
+		assert.Nil(t, err)
+		assert.Equal(t, test.want.s, s)
 
-// func TestBuildQueryStringAndValueForBetweenClause_Works(t *testing.T) {
-// 	now := time.Now()
-// 	before := now.Add(-60 * time.Second)
+		if assert.Equal(t, 1, len(vals)) {
+			v2, ok := vals[0].([]uuid.UUID)
+			if ok {
+				assert.Equal(t, test.want.v[0], v2[0])
+				assert.Equal(t, test.want.v[1], v2[1])
+				assert.Equal(t, test.want.v[2], v2[2])
+			} else {
+				assert.Fail(t, "wrong type")
+			}
+		}
+	}
+}
 
-// 	tests := []struct {
-// 		predicate *Predicate
-// 		want      struct {
-// 			s string
-// 			v []time.Time
-// 		}
-// 	}{
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "CreatedAt",
-// 				Cond:  PredicateCondBETWEEN,
-// 				Value: []time.Time{
-// 					before,
-// 					now,
-// 				},
-// 			},
-// 			want: struct {
-// 				s string
-// 				v []time.Time
-// 			}{s: "\"top_level\".created_at BETWEEN ? AND ?", v: []time.Time{before, now}},
-// 		},
-// 	}
+func TestBuildQueryStringAndValueForBetweenClause_Works(t *testing.T) {
+	now := time.Now()
+	before := now.Add(-60 * time.Second)
 
-// 	for _, test := range tests {
-// 		s, vals, err := test.predicate.BuildQueryStringAndValues(&TestModel{})
-// 		assert.Nil(t, err)
-// 		assert.Equal(t, test.want.s, s)
+	tests := []struct {
+		predicate *Predicate
+		want      struct {
+			s string
+			v []time.Time
+		}
+	}{
+		{
+			predicate: &Predicate{
+				Field: "CreatedAt",
+				Cond:  PredicateCondBETWEEN,
+				Value: []time.Time{
+					before,
+					now,
+				},
+			},
+			want: struct {
+				s string
+				v []time.Time
+			}{s: "\"top_level\".created_at BETWEEN ? AND ?", v: []time.Time{before, now}},
+		},
+	}
 
-// 		if assert.Equal(t, 1, len(vals)) {
-// 			v2, ok := vals[0].([]time.Time)
-// 			if ok {
-// 				assert.Equal(t, test.want.v[0].UnixNano(), v2[0].UnixNano())
-// 				assert.Equal(t, test.want.v[1].UnixNano(), v2[1].UnixNano())
-// 			} else {
-// 				assert.Fail(t, "wrong type")
-// 			}
-// 		}
-// 	}
-// }
+	for _, test := range tests {
+		s, vals, err := test.predicate.BuildQueryStringAndValues(&TopLevel{})
+		assert.Nil(t, err)
+		assert.Equal(t, test.want.s, s)
 
-// func TestBuildQueryString_InnerStructQuery_Works(t *testing.T) {
-// 	tests := []struct {
-// 		predicate *Predicate
-// 		want      struct {
-// 			s string
-// 			v interface{}
-// 		}
-// 	}{
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "Dogs.Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "doggie1",
-// 			},
-// 			want: struct {
-// 				s string
-// 				v interface{}
-// 			}{s: "\"dog\".name = ?", v: "doggie1"},
-// 		},
-// 	}
-// 	for _, test := range tests {
-// 		s, vals, err := test.predicate.BuildQueryStringAndValues(&TestModel{})
-// 		assert.Nil(t, err)
-// 		assert.Equal(t, test.want.s, s)
-// 		if assert.Equal(t, len(vals), 1) {
-// 			assert.Equal(t, test.want.v, vals[0])
-// 		}
-// 	}
-// }
+		if assert.Equal(t, 1, len(vals)) {
+			v2, ok := vals[0].([]time.Time)
+			if ok {
+				assert.Equal(t, test.want.v[0].UnixNano(), v2[0].UnixNano())
+				assert.Equal(t, test.want.v[1].UnixNano(), v2[1].UnixNano())
+			} else {
+				assert.Fail(t, "wrong type")
+			}
+		}
+	}
+}
 
-// func TestBuildQueryString_NonExistingInnerStructQuery_ReturnsError(t *testing.T) {
-// 	tests := []struct {
-// 		predicate *Predicate
-// 		want      struct {
-// 			s string
-// 			v interface{}
-// 		}
-// 	}{
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "Bogus.Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "doggie1",
-// 			},
-// 			want: struct {
-// 				s string
-// 				v interface{}
-// 			}{s: "\"bogus\".name = ?", v: "doggie1"},
-// 		},
-// 	}
-// 	for _, test := range tests {
-// 		_, _, err := test.predicate.BuildQueryStringAndValues(&TestModel{})
-// 		assert.Error(t, err)
-// 	}
-// }
+func TestBuildQueryString_ArrInnerStructQuery_Works(t *testing.T) {
+	tests := []struct {
+		predicate *Predicate
+		want      struct {
+			s string
+			v interface{}
+		}
+	}{
+		{
+			predicate: &Predicate{
+				Field: "Dogs.Name",
+				Cond:  PredicateCondEQ,
+				Value: "doggie1",
+			},
+			want: struct {
+				s string
+				v interface{}
+			}{s: "\"sec_level_arr_dog\".name = ?", v: "doggie1"},
+		},
+	}
+	for _, test := range tests {
+		s, vals, err := test.predicate.BuildQueryStringAndValues(&TopLevel{})
+		assert.Nil(t, err)
+		assert.Equal(t, test.want.s, s)
+		if assert.Equal(t, len(vals), 1) {
+			assert.Equal(t, test.want.v, vals[0])
+		}
+	}
+}
 
-// func TestBuildQueryString_Level2InnerStructQuery_Works(t *testing.T) {
-// 	tests := []struct {
-// 		predicate *Predicate
-// 		want      struct {
-// 			s string
-// 			v interface{}
-// 		}
-// 	}{
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "Dogs.DogToys.ToyName",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "MyToy",
-// 			},
-// 			want: struct {
-// 				s string
-// 				v interface{}
-// 			}{s: "\"dog_toy\".toy_name = ?", v: "MyToy"},
-// 		},
-// 	}
-// 	for _, test := range tests {
-// 		s, vals, err := test.predicate.BuildQueryStringAndValues(&TestModel{})
-// 		if assert.Nil(t, err) {
-// 			assert.Equal(t, test.want.s, s)
-// 			if assert.Equal(t, len(vals), 1) {
-// 				assert.Equal(t, test.want.v, vals[0])
-// 			}
-// 		}
-// 	}
-// }
+func TestBuildQueryString_ArrNonExistingInnerStructQuery_ReturnsError(t *testing.T) {
+	tests := []struct {
+		predicate *Predicate
+		want      struct {
+			s string
+			v interface{}
+		}
+	}{
+		{
+			predicate: &Predicate{
+				Field: "Bogus.Name",
+				Cond:  PredicateCondEQ,
+				Value: "doggie1",
+			},
+			want: struct {
+				s string
+				v interface{}
+			}{s: "\"bogus\".name = ?", v: "doggie1"},
+		},
+	}
+	for _, test := range tests {
+		_, _, err := test.predicate.BuildQueryStringAndValues(&TopLevel{})
+		assert.Error(t, err)
+	}
+}
 
-// func TestPredicate_GetDesignatedModel_Works(t *testing.T) {
-// 	tests := []struct {
-// 		predicate *Predicate
-// 	}{
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "Dogs.DogToys.ToyName",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "MyToy",
-// 			},
-// 		},
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "SomeName",
-// 			},
-// 		},
-// 	}
-// 	test1 := tests[0]
-// 	m, err := test1.predicate.GetDesignatedModel(&TestModel{})
-// 	if assert.Nil(t, err) {
-// 		_, ok := m.(*DogToy)
-// 		assert.True(t, ok)
-// 	}
-// 	test2 := tests[1]
-// 	m, err = test2.predicate.GetDesignatedModel(&TestModel{})
-// 	if assert.Nil(t, err) {
-// 		_, ok := m.(*TestModel)
-// 		assert.True(t, ok)
-// 	}
-// }
+func TestBuildQueryString_ArrLevel2InnerStructQuery_Works(t *testing.T) {
+	tests := []struct {
+		predicate *Predicate
+		want      struct {
+			s string
+			v interface{}
+		}
+	}{
+		{
+			predicate: &Predicate{
+				Field: "Dogs.DogToys.ToyName",
+				Cond:  PredicateCondEQ,
+				Value: "MyToy",
+			},
+			want: struct {
+				s string
+				v interface{}
+			}{s: "\"third_level_arr_dog_toy\".toy_name = ?", v: "MyToy"},
+		},
+	}
+	for _, test := range tests {
+		s, vals, err := test.predicate.BuildQueryStringAndValues(&TopLevel{})
+		if assert.Nil(t, err) {
+			assert.Equal(t, test.want.s, s)
+			if assert.Equal(t, len(vals), 1) {
+				assert.Equal(t, test.want.v, vals[0])
+			}
+		}
+	}
+}
 
-// func TestPredicate_GetDesignatedField_Works(t *testing.T) {
-// 	tests := []struct {
-// 		predicate *Predicate
-// 	}{
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "Dogs.DogToys.ToyName",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "MyToy",
-// 			},
-// 		},
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "SomeName",
-// 			},
-// 		},
-// 	}
-// 	test1 := tests[0]
-// 	s := test1.predicate.GetDesignatedField(&TestModel{})
-// 	assert.Equal(t, "Dogs.DogToys", s)
+func TestPredicate_ArrGetDesignatedModel_Works(t *testing.T) {
+	tests := []struct {
+		predicate *Predicate
+	}{
+		{
+			predicate: &Predicate{
+				Field: "Dogs.DogToys.ToyName",
+				Cond:  PredicateCondEQ,
+				Value: "MyToy",
+			},
+		},
+		{
+			predicate: &Predicate{
+				Field: "Name",
+				Cond:  PredicateCondEQ,
+				Value: "SomeName",
+			},
+		},
+	}
+	test1 := tests[0]
+	m, err := test1.predicate.GetDesignatedModel(&TopLevel{})
+	if assert.Nil(t, err) {
+		_, ok := m.(*ThirdLevelArrDogToy)
+		assert.True(t, ok)
+	}
+	test2 := tests[1]
+	m, err = test2.predicate.GetDesignatedModel(&TopLevel{})
+	if assert.Nil(t, err) {
+		_, ok := m.(*TopLevel)
+		assert.True(t, ok)
+	}
+}
 
-// 	test2 := tests[1]
-// 	s = test2.predicate.GetDesignatedField(&TestModel{})
-// 	assert.Equal(t, "", s)
-// }
+func TestPredicate_GetDesignatedField_Works(t *testing.T) {
+	tests := []struct {
+		predicate *Predicate
+	}{
+		{
+			predicate: &Predicate{
+				Field: "Dogs.DogToys.ToyName",
+				Cond:  PredicateCondEQ,
+				Value: "MyToy",
+			},
+		},
+		{
+			predicate: &Predicate{
+				Field: "Name",
+				Cond:  PredicateCondEQ,
+				Value: "SomeName",
+			},
+		},
+	}
+	test1 := tests[0]
+	s := test1.predicate.GetDesignatedField(&TopLevel{})
+	assert.Equal(t, "Dogs.DogToys", s)
 
-// func Test_GetAllUnqueStructFieldDesignator_whenHavingDot_works(t *testing.T) {
-// 	tests := []struct {
-// 		predicate *Predicate
-// 		wants     []string
-// 	}{
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "A.B.C",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "what",
-// 			},
-// 			wants: []string{"A.B", "A"},
-// 		},
-// 		{
-// 			predicate: &Predicate{
-// 				Field: "A.B",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "what",
-// 			},
-// 			wants: []string{"A"},
-// 		},
-// 	}
+	test2 := tests[1]
+	s = test2.predicate.GetDesignatedField(&TopLevel{})
+	assert.Equal(t, "", s)
+}
 
-// 	for _, test := range tests {
-// 		m := test.predicate.GetAllUnqueStructFieldDesignator()
-// 		if assert.Equal(t, len(test.wants), len(m)) {
-// 			for _, want := range test.wants {
-// 				found := false
-// 				for designator := range m {
-// 					if want == designator {
-// 						found = true
-// 					}
-// 				}
-// 				assert.True(t, found)
-// 			}
-// 		}
-// 	}
-// }
+func Test_GetAllUnqueStructFieldDesignator_whenHavingDot_works(t *testing.T) {
+	tests := []struct {
+		predicate *Predicate
+		wants     []string
+	}{
+		{
+			predicate: &Predicate{
+				Field: "A.B.C",
+				Cond:  PredicateCondEQ,
+				Value: "what",
+			},
+			wants: []string{"A.B", "A"},
+		},
+		{
+			predicate: &Predicate{
+				Field: "A.B",
+				Cond:  PredicateCondEQ,
+				Value: "what",
+			},
+			wants: []string{"A"},
+		},
+	}
 
-// func Test_GetAllUnqueStructFieldDesignator_whenOnlyOneLevel_returnEmptyMap(t *testing.T) {
-// 	predicate := &Predicate{
-// 		Field: "A",
-// 		Cond:  PredicateCondEQ,
-// 		Value: "what",
-// 	}
+	for _, test := range tests {
+		m := test.predicate.GetAllUnqueStructFieldDesignator()
+		if assert.Equal(t, len(test.wants), len(m)) {
+			for _, want := range test.wants {
+				found := false
+				for designator := range m {
+					if want == designator {
+						found = true
+					}
+				}
+				assert.True(t, found)
+			}
+		}
+	}
+}
 
-// 	m := predicate.GetAllUnqueStructFieldDesignator()
-// 	assert.Equal(t, 0, len(m))
-// }
+func Test_GetAllUnqueStructFieldDesignator_whenOnlyOneLevel_returnEmptyMap(t *testing.T) {
+	predicate := &Predicate{
+		Field: "A",
+		Cond:  PredicateCondEQ,
+		Value: "what",
+	}
 
-// func Test_Predicate_NestedLevel(t *testing.T) {
-// 	predicate := &Predicate{
-// 		Field: "A.B.C",
-// 		Cond:  PredicateCondEQ,
-// 		Value: "what",
-// 	}
+	m := predicate.GetAllUnqueStructFieldDesignator()
+	assert.Equal(t, 0, len(m))
+}
 
-// 	assert.Equal(t, 3, predicate.GetNestedLevel())
+func Test_Predicate_NestedLevel(t *testing.T) {
+	predicate := &Predicate{
+		Field: "A.B.C",
+		Cond:  PredicateCondEQ,
+		Value: "what",
+	}
 
-// 	predicate = &Predicate{
-// 		Field: "A",
-// 		Cond:  PredicateCondEQ,
-// 		Value: "what",
-// 	}
+	assert.Equal(t, 3, predicate.GetNestedLevel())
 
-// 	assert.Equal(t, 1, predicate.GetNestedLevel())
-// }
+	predicate = &Predicate{
+		Field: "A",
+		Cond:  PredicateCondEQ,
+		Value: "what",
+	}
+
+	assert.Equal(t, 1, predicate.GetNestedLevel())
+}
 
 // // --- PredicateRelation ---
 
-// func TestPredicateRelationStringAndValuesOnePredicte(t *testing.T) {
-// 	tests := []struct {
-// 		pr   *PredicateRelation
-// 		want struct {
-// 			s string
-// 			v int
-// 		}
-// 	}{
-// 		{
-// 			pr: &PredicateRelation{
-// 				PredOrRels: []Criteria{
-// 					&Predicate{
-// 						Field: "Age",
-// 						Cond:  PredicateCondGT,
-// 						Value: 20,
-// 					},
-// 				},
-// 			},
-// 			want: struct {
-// 				s string
-// 				v int
-// 			}{
-// 				s: "\"top_level\".age > ?",
-// 				v: 20,
-// 			},
-// 		},
-// 	}
+func TestPredicateRelationStringAndValuesOnePredicte(t *testing.T) {
+	tests := []struct {
+		pr   *PredicateRelation
+		want struct {
+			s string
+			v int
+		}
+	}{
+		{
+			pr: &PredicateRelation{
+				PredOrRels: []Criteria{
+					&Predicate{
+						Field: "Age",
+						Cond:  PredicateCondGT,
+						Value: 20,
+					},
+				},
+			},
+			want: struct {
+				s string
+				v int
+			}{
+				s: "\"top_level\".age > ?",
+				v: 20,
+			},
+		},
+	}
 
-// 	for _, test := range tests {
-// 		s, vals, err := test.pr.BuildQueryStringAndValues(&TestModel{})
-// 		assert.Nil(t, err)
-// 		assert.Equal(t, test.want.s, s)
-// 		if assert.Equal(t, 1, len(vals)) {
-// 			assert.Equal(t, test.want.v, vals[0])
-// 		}
-// 	}
-// }
+	for _, test := range tests {
+		s, vals, err := test.pr.BuildQueryStringAndValues(&TopLevel{})
+		assert.Nil(t, err)
+		assert.Equal(t, test.want.s, s)
+		if assert.Equal(t, 1, len(vals)) {
+			assert.Equal(t, test.want.v, vals[0])
+		}
+	}
+}
 
-// func TestPredicateRelationStringAndValuesWithSecondNested(t *testing.T) {
-// 	innerPred := &PredicateRelation{
-// 		PredOrRels: []Criteria{
-// 			&Predicate{
-// 				Field: "Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Christy",
-// 			},
-// 			&Predicate{
-// 				Field: "Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Jenny",
-// 			},
-// 		},
-// 		Logics: []PredicateLogic{PredicateLogicOR},
-// 	}
+func TestPredicateRelationStringAndValuesWithSecondNested(t *testing.T) {
+	innerPred := &PredicateRelation{
+		PredOrRels: []Criteria{
+			&Predicate{
+				Field: "Name",
+				Cond:  PredicateCondEQ,
+				Value: "Christy",
+			},
+			&Predicate{
+				Field: "Name",
+				Cond:  PredicateCondEQ,
+				Value: "Jenny",
+			},
+		},
+		Logics: []PredicateLogic{PredicateLogicOR},
+	}
 
-// 	outerPred := &PredicateRelation{
-// 		PredOrRels: []Criteria{
-// 			&Predicate{
-// 				Field: "Age",
-// 				Cond:  PredicateCondGT,
-// 				Value: 20,
-// 			},
-// 			&Predicate{
-// 				Field: "Age",
-// 				Cond:  PredicateCondLT,
-// 				Value: 30,
-// 			},
-// 			innerPred,
-// 		},
-// 		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
-// 	}
-// 	s, vals, err := outerPred.BuildQueryStringAndValues(&TestModel{})
-// 	assert.Nil(t, err)
-// 	assert.Equal(t, "(\"top_level\".age > ?) AND (\"top_level\".age < ?) AND ((\"top_level\".real_name_column = ?) OR (\"top_level\".real_name_column = ?))", s)
-// 	if assert.Equal(t, 4, len(vals)) {
-// 		assert.Equal(t, 20, vals[0].(int), 20)
-// 		assert.Equal(t, 30, vals[1].(int), 30)
-// 		assert.Equal(t, "Christy", vals[2].(string))
-// 		assert.Equal(t, "Jenny", vals[3].(string))
+	outerPred := &PredicateRelation{
+		PredOrRels: []Criteria{
+			&Predicate{
+				Field: "Age",
+				Cond:  PredicateCondGT,
+				Value: 20,
+			},
+			&Predicate{
+				Field: "Age",
+				Cond:  PredicateCondLT,
+				Value: 30,
+			},
+			innerPred,
+		},
+		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
+	}
+	s, vals, err := outerPred.BuildQueryStringAndValues(&TopLevel{})
+	assert.Nil(t, err)
+	assert.Equal(t, "(\"top_level\".age > ?) AND (\"top_level\".age < ?) AND ((\"top_level\".real_name_column = ?) OR (\"top_level\".real_name_column = ?))", s)
+	if assert.Equal(t, 4, len(vals)) {
+		assert.Equal(t, 20, vals[0].(int), 20)
+		assert.Equal(t, 30, vals[1].(int), 30)
+		assert.Equal(t, "Christy", vals[2].(string))
+		assert.Equal(t, "Jenny", vals[3].(string))
 
-// 	}
-// }
+	}
+}
 
-// func TestPredicateRelationStringAndValuesWithFirstNested(t *testing.T) {
-// 	innerRel := &PredicateRelation{
-// 		PredOrRels: []Criteria{
-// 			&Predicate{
-// 				Field: "Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Christy",
-// 			},
-// 			&Predicate{
-// 				Field: "Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Jenny",
-// 			},
-// 		},
-// 		Logics: []PredicateLogic{PredicateLogicOR},
-// 	}
+func TestPredicateRelationStringAndValuesWithFirstNested(t *testing.T) {
+	innerRel := &PredicateRelation{
+		PredOrRels: []Criteria{
+			&Predicate{
+				Field: "Name",
+				Cond:  PredicateCondEQ,
+				Value: "Christy",
+			},
+			&Predicate{
+				Field: "Name",
+				Cond:  PredicateCondEQ,
+				Value: "Jenny",
+			},
+		},
+		Logics: []PredicateLogic{PredicateLogicOR},
+	}
 
-// 	outerPred := &PredicateRelation{
-// 		PredOrRels: []Criteria{
-// 			innerRel,
-// 			&Predicate{
-// 				Field: "Age",
-// 				Cond:  PredicateCondGT,
-// 				Value: 20,
-// 			},
-// 			&Predicate{
-// 				Field: "Age",
-// 				Cond:  PredicateCondLT,
-// 				Value: 30,
-// 			},
-// 		},
-// 		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
-// 	}
-// 	s, vals, err := outerPred.BuildQueryStringAndValues(&TestModel{})
-// 	assert.Nil(t, err)
-// 	assert.Equal(t, "((\"top_level\".real_name_column = ?) OR (\"top_level\".real_name_column = ?)) AND (\"top_level\".age > ?) AND (\"top_level\".age < ?)", s)
-// 	if assert.Equal(t, 4, len(vals)) {
-// 		assert.Equal(t, "Christy", vals[0].(string))
-// 		assert.Equal(t, "Jenny", vals[1].(string))
-// 		assert.Equal(t, 20, vals[2].(int), 20)
-// 		assert.Equal(t, 30, vals[3].(int), 30)
-// 	}
-// }
+	outerPred := &PredicateRelation{
+		PredOrRels: []Criteria{
+			innerRel,
+			&Predicate{
+				Field: "Age",
+				Cond:  PredicateCondGT,
+				Value: 20,
+			},
+			&Predicate{
+				Field: "Age",
+				Cond:  PredicateCondLT,
+				Value: 30,
+			},
+		},
+		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
+	}
+	s, vals, err := outerPred.BuildQueryStringAndValues(&TopLevel{})
+	assert.Nil(t, err)
+	assert.Equal(t, "((\"top_level\".real_name_column = ?) OR (\"top_level\".real_name_column = ?)) AND (\"top_level\".age > ?) AND (\"top_level\".age < ?)", s)
+	if assert.Equal(t, 4, len(vals)) {
+		assert.Equal(t, "Christy", vals[0].(string))
+		assert.Equal(t, "Jenny", vals[1].(string))
+		assert.Equal(t, 20, vals[2].(int), 20)
+		assert.Equal(t, 30, vals[3].(int), 30)
+	}
+}
 
-// func TestBuildQueryString_DifferentLevelOfNesting_ReturnError(t *testing.T) {
-// 	rel := &PredicateRelation{
-// 		PredOrRels: []Criteria{
-// 			&Predicate{
-// 				Field: "Inner.Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Christy",
-// 			},
-// 			&Predicate{
-// 				Field: "Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Jenny",
-// 			},
-// 		},
-// 		Logics: []PredicateLogic{PredicateLogicOR},
-// 	}
+func TestBuildQueryString_DifferentLevelOfNesting_ReturnError(t *testing.T) {
+	rel := &PredicateRelation{
+		PredOrRels: []Criteria{
+			&Predicate{
+				Field: "Inner.Name",
+				Cond:  PredicateCondEQ,
+				Value: "Christy",
+			},
+			&Predicate{
+				Field: "Name",
+				Cond:  PredicateCondEQ,
+				Value: "Jenny",
+			},
+		},
+		Logics: []PredicateLogic{PredicateLogicOR},
+	}
 
-// 	_, _, err := rel.BuildQueryStringAndValues(&TestModel{})
-// 	assert.Error(t, err)
-// }
+	_, _, err := rel.BuildQueryStringAndValues(&TopLevel{})
+	assert.Error(t, err)
+}
 
-// func TestPredicateRelation_GetDesignatedModel_Works(t *testing.T) {
-// 	rel := &PredicateRelation{
-// 		PredOrRels: []Criteria{
-// 			&Predicate{
-// 				Field: "Dogs.DogToys.ToyName",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Something",
-// 			},
-// 		},
-// 		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
-// 	}
+func TestPredicateRelation_ArrGetDesignatedModel_Works(t *testing.T) {
+	rel := &PredicateRelation{
+		PredOrRels: []Criteria{
+			&Predicate{
+				Field: "Dogs.DogToys.ToyName",
+				Cond:  PredicateCondEQ,
+				Value: "Something",
+			},
+		},
+		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
+	}
 
-// 	m, err := rel.GetDesignatedModel(&TestModel{})
-// 	if assert.Nil(t, err) {
-// 		_, ok := m.(*DogToy)
-// 		assert.True(t, ok)
-// 	}
-// }
+	m, err := rel.GetDesignatedModel(&TopLevel{})
+	if assert.Nil(t, err) {
+		_, ok := m.(*ThirdLevelArrDogToy)
+		assert.True(t, ok)
+	}
+}
 
-// func TestPredicateRelation_GetDesignatedField_Works(t *testing.T) {
-// 	rel1 := &PredicateRelation{
-// 		PredOrRels: []Criteria{
-// 			&Predicate{
-// 				Field: "Dogs.DogToys.ToyName",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Something",
-// 			},
-// 		},
-// 		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
-// 	}
+func TestPredicateRelation_GetDesignatedField_Works(t *testing.T) {
+	rel1 := &PredicateRelation{
+		PredOrRels: []Criteria{
+			&Predicate{
+				Field: "Dogs.DogToys.ToyName",
+				Cond:  PredicateCondEQ,
+				Value: "Something",
+			},
+		},
+		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
+	}
 
-// 	rel2 := &PredicateRelation{
-// 		PredOrRels: []Criteria{
-// 			&Predicate{
-// 				Field: "Name",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Something",
-// 			},
-// 		},
-// 		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
-// 	}
+	rel2 := &PredicateRelation{
+		PredOrRels: []Criteria{
+			&Predicate{
+				Field: "Name",
+				Cond:  PredicateCondEQ,
+				Value: "Something",
+			},
+		},
+		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
+	}
 
-// 	field := rel1.GetDesignatedField(&TestModel{})
-// 	assert.Equal(t, "Dogs.DogToys", field)
-// 	field = rel2.GetDesignatedField(&TestModel{})
-// 	assert.Equal(t, "", field)
-// }
+	field := rel1.GetDesignatedField(&TopLevel{})
+	assert.Equal(t, "Dogs.DogToys", field)
+	field = rel2.GetDesignatedField(&TopLevel{})
+	assert.Equal(t, "", field)
+}
 
-// func TestRelation_GetAllUnqueStructFieldDesignator_Works(t *testing.T) {
-// 	rel := &PredicateRelation{
-// 		PredOrRels: []Criteria{
-// 			&Predicate{
-// 				Field: "Dogs.DogToys.ToyToy",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Something",
-// 			},
-// 			&Predicate{
-// 				Field: "A.B.C",
-// 				Cond:  PredicateCondEQ,
-// 				Value: "Something",
-// 			},
-// 			&PredicateRelation{
-// 				PredOrRels: []Criteria{
-// 					&Predicate{
-// 						Field: "Dogs.DogToys.Ant.Bat.Cat",
-// 						Cond:  PredicateCondEQ,
-// 						Value: "Something",
-// 					},
-// 				},
-// 			},
-// 		},
-// 		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
-// 	}
+func TestRelation_GetAllUnqueStructFieldDesignator_Works(t *testing.T) {
+	rel := &PredicateRelation{
+		PredOrRels: []Criteria{
+			&Predicate{
+				Field: "Dogs.DogToys.ToyToy",
+				Cond:  PredicateCondEQ,
+				Value: "Something",
+			},
+			&Predicate{
+				Field: "A.B.C",
+				Cond:  PredicateCondEQ,
+				Value: "Something",
+			},
+			&PredicateRelation{
+				PredOrRels: []Criteria{
+					&Predicate{
+						Field: "Dogs.DogToys.Ant.Bat.Cat",
+						Cond:  PredicateCondEQ,
+						Value: "Something",
+					},
+				},
+			},
+		},
+		Logics: []PredicateLogic{PredicateLogicAND, PredicateLogicAND},
+	}
 
-// 	want := []string{"Dogs", "Dogs.DogToys", "A.B", "A", "Dogs.DogToys.Ant", "Dogs.DogToys.Ant.Bat"}
+	want := []string{"Dogs", "Dogs.DogToys", "A.B", "A", "Dogs.DogToys.Ant", "Dogs.DogToys.Ant.Bat"}
 
-// 	m := rel.GetAllUnqueStructFieldDesignator()
-// 	if assert.Equal(t, len(want), len(m)) {
-// 		for _, want := range want {
-// 			found := false
-// 			for designator := range m {
-// 				if want == designator {
-// 					found = true
-// 				}
-// 			}
-// 			assert.True(t, found)
-// 		}
-// 	}
+	m := rel.GetAllUnqueStructFieldDesignator()
+	if assert.Equal(t, len(want), len(m)) {
+		for _, want := range want {
+			found := false
+			for designator := range m {
+				if want == designator {
+					found = true
+				}
+			}
+			assert.True(t, found)
+		}
+	}
 
-// }
+}

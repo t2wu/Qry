@@ -3,6 +3,7 @@ package qry
 import (
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"strings"
 
@@ -56,50 +57,6 @@ func DeleteModelFixManyToManyAndPegAndPegAssoc(db *gorm.DB, modelObj mdl.IModel)
 	return nil
 
 }
-
-// func markForUpdatingAssoc(db *gorm.DB, v reflect.Value, car cargo) error {
-// 	for i := 0; i < v.NumField(); i++ {
-// 		t := pegPegassocOrPegManyToMany(v.Type().Field(i).Tag)
-// 		if t == "pegassoc" {
-// 			switch v.Field(i).Kind() {
-// 			case reflect.Struct:
-// 				m := v.Field(i).Addr().Interface().(mdl.IModel)
-// 				fieldTableName := mdl.GetTableNameFromIModel(m)
-// 				if _, ok := car.toProcess[fieldTableName]; ok {
-// 					mids := car.toProcess[fieldTableName]
-// 					mids.ids = append(mids.ids, m.GetID())
-// 					car.toProcess[fieldTableName] = mids
-// 				} else {
-// 					arr := make([]interface{}, 1)
-// 					arr[0] = m.GetID()
-// 					car.toProcess[fieldTableName] = modelAndIds{modelObj: m, ids: arr}
-// 				}
-// 			case reflect.Slice:
-// 				typ := v.Type().Field(i).Type.Elem()
-// 				m, _ := reflect.New(typ).Interface().(mdl.IModel)
-// 				fieldTableName := mdl.GetTableNameFromIModel(m)
-// 				for j := 0; j < v.Field(i).Len(); j++ {
-// 					if _, ok := car.toProcess[fieldTableName]; ok {
-// 						mids := car.toProcess[fieldTableName]
-// 						mids.ids = append(mids.ids, v.Field(i).Index(j).Addr().Interface().(mdl.IModel).GetID())
-// 						car.toProcess[fieldTableName] = mids
-// 					} else {
-// 						arr := make([]interface{}, 1)
-// 						arr[0] = v.Field(i).Index(j).Addr().Interface().(mdl.IModel).GetID()
-// 						car.toProcess[fieldTableName] = modelAndIds{modelObj: m, ids: arr}
-// 					}
-// 				}
-// 			case reflect.Ptr:
-// 				// Unbox the pointer
-// 				if err := markForUpdatingAssoc(db, v.Elem(), car); err != nil {
-// 					return err
-// 				}
-// 			}
-// 		}
-// 	}
-
-// 	return nil
-// }
 
 // TODO: if there is a "pegassoc-manytomany" inside a pegged struct
 // and we're deleting the pegged struct, the many-to-many relationship needs to be removed
@@ -243,7 +200,7 @@ func removeManyToManyAssociationTableElem(db *gorm.DB, modelObj mdl.IModel) erro
 	return nil
 }
 
-func checkIDsNotFound(db *gorm.DB, nestedIModels []mdl.IModel) error {
+func checkIDsShouldNotBeFound(db *gorm.DB, nestedIModels []mdl.IModel) error {
 	if len(nestedIModels) > 0 {
 		ids := make([]*uuid.UUID, 0)
 		for _, nestedIModel := range nestedIModels {
@@ -272,15 +229,16 @@ func checkIDsNotFound(db *gorm.DB, nestedIModels []mdl.IModel) error {
 	return nil
 }
 
-func RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db *gorm.DB, modelObj mdl.IModel) error {
+// Why does this need to check if checkIDsShouldNotBeFound?
+// If user input some ID that's already in DB I am to reject here.
+// But if I left it to gorm it could be rejected as well, I just need to catch it
+// and turn it into "id of embedded pegged object already exists"
+func CheckPeggedFieldsHasNoExistingID(db *gorm.DB, modelObj mdl.IModel) error {
 	v := reflect.Indirect(reflect.ValueOf(modelObj))
 
 	for i := 0; i < v.NumField(); i++ {
 		tag := qtag.GetQryTag(v.Type().Field(i).Tag)
 		if tag == qtag.QryTagPeg {
-			// if it's pegged and it's creating, it should be new ID, so we set it nil..
-			// or at least it shouldn't exists! (TODO)
-			// what if it's the third level?
 			fieldVal := v.Field(i)
 			switch fieldVal.Kind() {
 			case reflect.Slice:
@@ -294,14 +252,14 @@ func RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db *gorm.DB, modelObj mdl.IMode
 					}
 				}
 
-				if err := checkIDsNotFound(db, ms); err != nil {
+				if err := checkIDsShouldNotBeFound(db, ms); err != nil {
 					return err
 				}
 
 				for j := 0; j < len(ms); j++ {
 					nestedIModel := ms[j]
 					// Traverse into it
-					if err := RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db, nestedIModel); err != nil {
+					if err := CheckPeggedFieldsHasNoExistingID(db, nestedIModel); err != nil {
 						return err
 					}
 				}
@@ -311,13 +269,13 @@ func RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db *gorm.DB, modelObj mdl.IMode
 				if ok && !isNil(nestedIModel) {
 					if nestedIModel.GetID() != nil {
 						if nestedIModel.GetID() != nil {
-							if err := checkIDsNotFound(db, []mdl.IModel{nestedIModel}); err != nil {
+							if err := checkIDsShouldNotBeFound(db, []mdl.IModel{nestedIModel}); err != nil {
 								return err
 							}
 						}
 					}
 					// Traverse into it
-					if err := RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db, nestedIModel); err != nil {
+					if err := CheckPeggedFieldsHasNoExistingID(db, nestedIModel); err != nil {
 						return err
 					}
 				}
@@ -327,13 +285,13 @@ func RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db *gorm.DB, modelObj mdl.IMode
 				nestedIModel, ok := nestedModel.(mdl.IModel)
 				if ok {
 					if nestedIModel.GetID() != nil {
-						if err := checkIDsNotFound(db, []mdl.IModel{nestedIModel}); err != nil {
+						if err := checkIDsShouldNotBeFound(db, []mdl.IModel{nestedIModel}); err != nil {
 							return err
 						}
 					}
 
 					// Traverse into it
-					if err := RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db, nestedIModel); err != nil {
+					if err := CheckPeggedFieldsHasNoExistingID(db, nestedIModel); err != nil {
 						return err
 					}
 				}
@@ -410,6 +368,7 @@ func isNil(a interface{}) bool {
 	return a == nil || reflect.ValueOf(a).IsNil()
 }
 
+// TODO: Need to make this more efficient by handling multiple tables at the same time like we do on create
 func UpdateNestedFields(db *gorm.DB, oldModelObj mdl.IModel, newModelObj mdl.IModel) (err error) {
 	// Indirect is dereference
 	// Interface() is extract content than re-wrap to interface
@@ -522,11 +481,24 @@ func UpdateNestedFields(db *gorm.DB, oldModelObj mdl.IModel, newModelObj mdl.IMo
 
 						// Wait does Gormv2 do that? Need to test.
 					} else if tagNField.Tag == qtag.QryTagPegAssoc {
-						columnName := v1.Type().Field(i).Name
 
+						tableToAssoc := mdl.GetTableNameFromIModel(modelToAdd.(mdl.IModel))
 						// If the new model doesn't exist, it is an error.
 						// If it exists, all we have to do is update the parent table reference of the nested table
-						if err = db.Model(modelToAdd).Update(fmt.Sprintf("%s = ?", columnName), newModelObj.GetID()).Error; err != nil {
+						if newModelObj.GetID() == nil {
+							return fmt.Errorf("%s does not exists during an update", tableToAssoc)
+						}
+						var c int64
+						if err := db.Table(tableToAssoc).Where(fmt.Sprintf("%s.id = ?", tableToAssoc), newModelObj.GetID()).
+							Count(&c).Error; err != nil {
+							return err
+						}
+						if c != 1 {
+							return fmt.Errorf("%s does not exists during an update", modelToAdd)
+						}
+						columnName := mdl.GetTableNameFromIModel(newModelObj) + "_id"
+						if err = db.Model(modelToAdd).Where(fmt.Sprintf("%s.id = ?", tableToAssoc), modelToAdd.(mdl.IModel).GetID()).
+							Update(columnName, newModelObj.GetID()).Error; err != nil {
 							return err
 						}
 					}
@@ -549,10 +521,37 @@ func UpdateNestedFields(db *gorm.DB, oldModelObj mdl.IModel, newModelObj mdl.IMo
 				}
 
 			case reflect.Struct:
-				// If it's peg or peg associate as long as it is here, it doesn't matter, we dig in.
-				if err := UpdateNestedFields(db, fieldVal1.Addr().Interface().(mdl.IModel), fieldVal2.Addr().Interface().(mdl.IModel)); err != nil {
-					return err
+				if tagNField.Tag == qtag.QryTagPeg {
+					if err := UpdateNestedFields(db, fieldVal1.Addr().Interface().(mdl.IModel), fieldVal2.Addr().Interface().(mdl.IModel)); err != nil {
+						return err
+					}
 				}
+
+				if tagNField.Tag == qtag.QryTagPegAssoc {
+
+					assocModel := fieldVal2.Addr().Interface().(mdl.IModel)
+					tableToAssoc := mdl.GetTableNameFromIModel(assocModel)
+
+					// If the new model doesn't exist, it is an error.
+					// If it exists, all we have to do is update the parent table reference of the nested table
+					if assocModel.GetID() == nil {
+						return fmt.Errorf("%s does not exists during an update", tableToAssoc)
+					}
+					var c int64
+					if err := db.Table(tableToAssoc).Where(fmt.Sprintf("%s.id = ?", tableToAssoc), assocModel.GetID()).
+						Count(&c).Error; err != nil {
+						return err
+					}
+					if c != 1 {
+						return fmt.Errorf("%s does not exists during an update", tableToAssoc)
+					}
+					columnName := mdl.GetTableNameFromIModel(newModelObj) + "_id"
+					if err = db.Table(tableToAssoc).Where(fmt.Sprintf("%s.id", tableToAssoc), assocModel.GetID()).
+						Update(columnName, newModelObj.GetID()).Error; err != nil {
+						return err
+					}
+				}
+
 			default:
 				// embedded object is considered part of the structure, so no removal
 			}
@@ -560,6 +559,142 @@ func UpdateNestedFields(db *gorm.DB, oldModelObj mdl.IModel, newModelObj mdl.IMo
 	}
 
 	return nil
+}
+
+func GrabFirstLevelAssociatedFieldsForSlice(value interface{}) (map[uuid.UUID]map[string][]uuid.UUID, error) {
+	// This is actually a reduce pattern, TODO: refactor this and hte kind like it (GrabAllNestedPeggedStructsForSlice)
+	val := reflect.Indirect(reflect.ValueOf(value))
+
+	retval := make(map[uuid.UUID]map[string][]uuid.UUID, 0) // embedded_table_name -> embedded_table_id
+
+	if val.Len() == 0 {
+		return retval, nil
+	}
+
+	isPtr := false
+	if val.Index(0).Kind() == reflect.Ptr {
+		isPtr = true
+	}
+
+	for j := 0; j < val.Len(); j++ {
+		var modelObj mdl.IModel
+		if isPtr {
+			modelObj = val.Index(j).Interface().(mdl.IModel)
+		} else {
+			modelObj = val.Index(j).Addr().Interface().(mdl.IModel)
+		}
+
+		if err := grabFirstLevelAssociatedFields_core(modelObj, &retval); err != nil {
+			return retval, err
+		}
+	}
+	return retval, nil
+}
+
+func GrabFirstLevelAssociatedFields(modelObj mdl.IModel) (map[uuid.UUID]map[string][]uuid.UUID, error) {
+	// We don't deal with nested, because nested means you're changing
+	// associated data, which we don't do
+
+	retval := make(map[uuid.UUID]map[string][]uuid.UUID, 0) // parent_table_id -> embedded_table_name -> embedded_table_ids
+	if err := grabFirstLevelAssociatedFields_core(modelObj, &retval); err != nil {
+		return retval, err
+	}
+	return retval, nil
+}
+
+// retval: embedded_table_name -> embedded_table_id
+func grabFirstLevelAssociatedFields_core(modelObj mdl.IModel, retval *map[uuid.UUID]map[string][]uuid.UUID) error {
+	// We don't deal with nested, because nested means you're changing
+	// associated data, which we don't do
+
+	// parent_table_id -> embedded_table_name -> embedded_table_ids
+
+	retval2 := *retval
+
+	val := reflect.Indirect(reflect.ValueOf(modelObj))
+	for i := 0; i < val.NumField(); i++ {
+		tag := val.Type().Field(i).Tag
+		if qtag.GetQryTag(tag) == qtag.QryTagPegAssoc {
+			// log.Println("seriously???, waht is the tag?", tag, val.Type().Field(i).Name)
+			field := val.Field(i)
+			switch field.Kind() {
+			case reflect.Slice, reflect.Array:
+				for j := 0; j < field.Len(); j++ {
+					m := field.Index(j).Addr().Interface().(mdl.IModel)
+					if m != nil && m.GetID() != nil {
+						tableName := mdl.GetTableNameFromIModel(m)
+
+						if retval2[*modelObj.GetID()] == nil {
+							retval2[*modelObj.GetID()] = make(map[string][]uuid.UUID)
+						}
+						if retval2[*modelObj.GetID()][tableName] == nil {
+							retval2[*modelObj.GetID()][tableName] = make([]uuid.UUID, 0)
+						}
+						retval2[*modelObj.GetID()][tableName] = append(retval2[*modelObj.GetID()][tableName], *m.GetID())
+					}
+				}
+			case reflect.Ptr:
+				if !field.IsNil() {
+					m := field.Interface().(mdl.IModel)
+					if m != nil && m.GetID() != nil {
+						tableName := mdl.GetTableNameFromIModel(m)
+
+						if retval2[*modelObj.GetID()] == nil {
+							retval2[*modelObj.GetID()] = make(map[string][]uuid.UUID)
+						}
+						if retval2[*modelObj.GetID()][tableName] == nil {
+							retval2[*modelObj.GetID()][tableName] = make([]uuid.UUID, 0)
+						}
+						retval2[*modelObj.GetID()][tableName] = append(retval2[*modelObj.GetID()][tableName], *m.GetID())
+					}
+				}
+			case reflect.Struct:
+				m := field.Addr().Interface().(mdl.IModel)
+				if m != nil && m.GetID() != nil {
+					tableName := mdl.GetTableNameFromIModel(m)
+
+					if retval2[*modelObj.GetID()] == nil {
+						retval2[*modelObj.GetID()] = make(map[string][]uuid.UUID)
+					}
+					if retval2[*modelObj.GetID()][tableName] == nil {
+						retval2[*modelObj.GetID()][tableName] = make([]uuid.UUID, 0)
+					}
+					retval2[*modelObj.GetID()][tableName] = append(retval2[*modelObj.GetID()][tableName], *m.GetID())
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// It could be []any model, the only parameter I can have is value interface{}
+func GrabAllNestedPeggedStructsForSlice(value interface{}) (map[int]map[string][]mdl.IModel, error) {
+	val := reflect.Indirect(reflect.ValueOf(value))
+
+	tblGrps := make(map[int]map[string][]mdl.IModel, 0)
+
+	if val.Len() == 0 {
+		return tblGrps, nil
+	}
+
+	isPtr := false
+	if val.Index(0).Kind() == reflect.Ptr {
+		isPtr = true
+	}
+
+	for j := 0; j < val.Len(); j++ {
+		var modelObj mdl.IModel
+		if isPtr {
+			modelObj = val.Index(j).Interface().(mdl.IModel)
+		} else {
+			modelObj = val.Index(j).Addr().Interface().(mdl.IModel)
+		}
+
+		if err := grabAllNestedPeggedStructs_core(modelObj, &tblGrps, 1); err != nil {
+			return tblGrps, err
+		}
+	}
+	return tblGrps, nil
 }
 
 func GrabAllNestedPeggedStructs(modelObj mdl.IModel) (map[int]map[string][]mdl.IModel, error) {
@@ -573,19 +708,28 @@ func grabAllNestedPeggedStructs_core(modelObj mdl.IModel, tblGrps *map[int]map[s
 
 	tblGrps2 := *tblGrps
 
+	// In case embedded struct doesn't have a parent ID reference, fill it
+	parentTableRef := strings.Split(reflect.TypeOf(modelObj).String(), ".")[1] + "ID"
+
+	// We need this because otherwise nested data has no ID to point back
+	if modelObj.GetID() == nil {
+		newID := datatype.NewUUID()
+		modelObj.SetID(&newID)
+	}
+
 	for i := 0; i < val.NumField(); i++ {
 		tag := val.Type().Field(i).Tag
 		if qtag.GetQryTag(tag) == qtag.QryTagPeg {
 			field := val.Field(i)
 			switch field.Kind() {
-			case reflect.Slice:
+			case reflect.Slice, reflect.Array:
 				for j := 0; j < field.Len(); j++ {
 					// m := field.Index(j)
 					m := field.Index(j).Addr().Interface().(mdl.IModel)
 					if m != nil {
 						// In case embedded struct doesn't have a parent ID reference, fill it
-						parentTableRef := strings.Split(reflect.TypeOf(modelObj).String(), ".")[1] + "ID"
 						reflectParentTableRef := field.Index(j).FieldByName(parentTableRef)
+						log.Println("trying to set parent table ref:", parentTableRef, "to:", modelObj.GetID())
 						parentID := reflectParentTableRef.Interface().(*uuid.UUID)
 						if parentID == nil {
 							reflectParentTableRef.Set(reflect.ValueOf(modelObj.GetID()))
@@ -594,6 +738,9 @@ func grabAllNestedPeggedStructs_core(modelObj mdl.IModel, tblGrps *map[int]map[s
 						tableName := mdl.GetTableNameFromIModel(m)
 						if tblGrps2[level] == nil {
 							tblGrps2[level] = make(map[string][]mdl.IModel, 0)
+						}
+						if tblGrps2[level][tableName] == nil {
+							tblGrps2[level][tableName] = make([]mdl.IModel, 0)
 						}
 						tblGrps2[level][tableName] = append(tblGrps2[level][tableName], m)
 
@@ -604,11 +751,20 @@ func grabAllNestedPeggedStructs_core(modelObj mdl.IModel, tblGrps *map[int]map[s
 				}
 			case reflect.Ptr:
 				if !field.IsNil() {
+					reflectParentTableRef := field.Elem().FieldByName(parentTableRef)
+					parentID := reflectParentTableRef.Interface().(*uuid.UUID)
+					if parentID == nil {
+						reflectParentTableRef.Set(reflect.ValueOf(modelObj.GetID()))
+					}
+
 					m := field.Interface().(mdl.IModel)
 					if m != nil {
 						tableName := mdl.GetTableNameFromIModel(m)
 						if tblGrps2[level] == nil {
 							tblGrps2[level] = make(map[string][]mdl.IModel, 0)
+						}
+						if tblGrps2[level][tableName] == nil {
+							tblGrps2[level][tableName] = make([]mdl.IModel, 0)
 						}
 						tblGrps2[level][tableName] = append(tblGrps2[level][tableName], m)
 
@@ -621,7 +777,6 @@ func grabAllNestedPeggedStructs_core(modelObj mdl.IModel, tblGrps *map[int]map[s
 				m := field.Addr().Interface().(mdl.IModel)
 				if m != nil {
 					// In case embedded struct doesn't have a parent ID reference, fill it
-					parentTableRef := strings.Split(reflect.TypeOf(modelObj).String(), ".")[1] + "ID"
 					reflectParentTableRef := field.FieldByName(parentTableRef)
 					parentID := reflectParentTableRef.Interface().(*uuid.UUID)
 					if parentID == nil {
@@ -632,8 +787,11 @@ func grabAllNestedPeggedStructs_core(modelObj mdl.IModel, tblGrps *map[int]map[s
 					if tblGrps2[level] == nil {
 						tblGrps2[level] = make(map[string][]mdl.IModel, 0)
 					}
-					tblGrps2[level][tableName] = append(tblGrps2[level][tableName], m)
 
+					if tblGrps2[level][tableName] == nil {
+						tblGrps2[level][tableName] = make([]mdl.IModel, 0)
+					}
+					tblGrps2[level][tableName] = append(tblGrps2[level][tableName], m)
 					if err := grabAllNestedPeggedStructs_core(m, tblGrps, level+1); err != nil {
 						return err
 					}

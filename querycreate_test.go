@@ -1,6 +1,7 @@
 package qry
 
 import (
+	"log"
 	"testing"
 
 	uuid "github.com/satori/go.uuid"
@@ -89,6 +90,31 @@ func TestCreate_PegAssocArray_ShouldAssociateCorrectly(t *testing.T) {
 	}
 }
 
+func TestCreate_PegAssocArray_WhichDidNotPreviouslyExist_ShouldReturnError(t *testing.T) {
+	// First create a cat, and while creating TopLevel, associate it with the cat
+	// Then, when you load it, you should see the cat
+	catuuid := datatype.NewUUID()
+	cat := SecLevelArrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid},
+		Name:      "Buddy",
+		Color:     "black",
+	}
+
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	u1 := datatype.NewUUID()
+	tm := TopLevel{BaseModel: mdl.BaseModel{
+		ID: &u1},
+		Name: "MyTestModel",
+		Age:  1,
+		Cats: []SecLevelArrCat{cat},
+	}
+
+	err := Q(tx).Create(&tm).Error()
+	assert.NotNil(t, err, "create should have error since cat does not exists")
+}
+
 func TestCreate_PeggedStruct(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
@@ -118,7 +144,9 @@ func TestCreate_PeggedStruct(t *testing.T) {
 	}
 
 	assert.Equal(t, u1, *searched.ID)
-	assert.Equal(t, doguuid1, *searched.EmbedDog.GetID())
+	if assert.NotNil(t, searched.EmbedDog.GetID()) {
+		assert.Equal(t, doguuid1, *searched.EmbedDog.GetID())
+	}
 }
 
 func TestCreate_PeggedStructPtr(t *testing.T) {
@@ -150,7 +178,9 @@ func TestCreate_PeggedStructPtr(t *testing.T) {
 	}
 
 	assert.Equal(t, u1, *searched.ID)
-	assert.Equal(t, doguuid1, *searched.PtrDog.GetID())
+	if assert.NotNil(t, searched.PtrDog) && assert.NotNil(t, searched.PtrDog.GetID()) {
+		assert.Equal(t, doguuid1, *searched.PtrDog.GetID())
+	}
 }
 
 func TestCreate_PeggedAssocStruct(t *testing.T) {
@@ -196,7 +226,9 @@ func TestCreate_PeggedAssocStruct(t *testing.T) {
 	}
 
 	assert.Equal(t, u1, *searched.ID)
-	assert.Equal(t, catuuid1, *searched.EmbedCat.GetID())
+	if assert.NotNil(t, searched.EmbedCat.GetID()) {
+		assert.Equal(t, catuuid1, *searched.EmbedCat.GetID())
+	}
 
 	// Unrelated at shouldn't be affected
 	othercat := SecLevelEmbedCat{}
@@ -206,6 +238,29 @@ func TestCreate_PeggedAssocStruct(t *testing.T) {
 	}
 	assert.Equal(t, catuuid2, *othercat.GetID())
 	assert.Nil(t, othercat.TopLevelID)
+}
+
+func TestCreate_PeggedAssocStruct_WhichDidNotPreviouslyExist_ShouldReturnError(t *testing.T) {
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	u1 := datatype.NewUUID()
+	catuuid1 := datatype.NewUUID()
+
+	cat := SecLevelEmbedCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid1},
+		Name:      "Kiddy",
+		Color:     "black",
+	}
+
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
+		Name:      "TestModel1",
+		EmbedCat:  cat,
+	}
+
+	err := DB(tx).Create(&testModel1).Error()
+	assert.NotNil(t, err)
 }
 
 func TestCreate_PeggedAssocStructPtr(t *testing.T) {
@@ -259,6 +314,79 @@ func TestCreate_PeggedAssocStructPtr(t *testing.T) {
 	}
 	assert.Equal(t, catuuid2, *othercat.GetID())
 	assert.Nil(t, othercat.TopLevelID)
+}
+
+func TestCreate_PeggedAssocStructPtr_WhichDidNotPreviouslyExist_ShouldReturnError(t *testing.T) {
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	u1 := datatype.NewUUID()
+	catuuid1 := datatype.NewUUID()
+
+	relatedCat := SecLevelPtrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid1},
+		Name:      "Kiddy",
+		Color:     "black",
+	}
+
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
+		Name:      "TestModel1",
+		PtrCat:    &relatedCat,
+	}
+
+	err := DB(tx).Create(&testModel1).Error()
+	assert.NotNil(t, err)
+}
+
+func TestCreate_PegAssocArray_ShouldNotUpdateAssociatedData(t *testing.T) {
+	// First create a cat, and while creating TopLevel, associate it with the cat
+	// Then, when you load it, you should see the cat
+	catuuid := datatype.NewUUID()
+	cat := SecLevelArrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid},
+		Name:      "Buddy",
+		Color:     "black",
+	}
+
+	catUpdate := SecLevelArrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid},
+		Name:      "Devil",
+		Color:     "red",
+	}
+
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	err := Q(tx).Create(&cat).Error()
+	if !assert.Nil(t, err) {
+		return
+	}
+
+	u1 := datatype.NewUUID()
+	tm := TopLevel{BaseModel: mdl.BaseModel{ID: &u1},
+		Name: "MyTestModel",
+		Age:  1,
+		Cats: []SecLevelArrCat{catUpdate}, // try to update it, which shouldn't happen
+	}
+
+	err = Q(tx).Create(&tm).Error() // create it !! TODO create need not to create peg assoc
+	if !assert.Nil(t, err) {
+		return
+	}
+
+	searched := TopLevel{}
+	if err := Q(tx, C("ID =", u1)).First(&searched).Error(); err != nil {
+		assert.Nil(t, err)
+		return
+	}
+
+	assert.Equal(t, u1, *searched.ID)
+	if assert.Equal(t, 1, len(searched.Cats)) { // should be associated
+		assert.Equal(t, catuuid, *searched.Cats[0].ID)
+		assert.Equal(t, "Buddy", searched.Cats[0].Name)
+		assert.Equal(t, "black", searched.Cats[0].Color)
+	}
 }
 
 func TestCreate_PeggedArray_WithExistingID_ShouldGiveAnError(t *testing.T) {
@@ -532,6 +660,9 @@ func TestBatchCreate_PeggAssociateArray_shouldAssociateCorrectly(t *testing.T) {
 	searched := make([]TopLevel, 0)
 
 	err = DB(tx).Create(tms).Error()
+
+	log.Println("catuuid????", catuuid1.String(), catuuid2.String())
+
 	if assert.Nil(t, err) {
 		err := Q(tx, C("ID IN", []uuid.UUID{u1, u2})).Find(&searched).Error()
 		if assert.Nil(t, err) {

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	uuid "github.com/satori/go.uuid"
 	"github.com/t2wu/qry/mdl"
 	"github.com/t2wu/qry/qrylogger"
 
@@ -421,7 +422,7 @@ func (q *Query) BuildQuery(modelObj mdl.IModel) (*gorm.DB, error) {
 
 func (q *Query) buildQueryCore(db *gorm.DB, modelObj mdl.IModel) (*gorm.DB, error) {
 	var err error
-	db = buildPreload(db).Model(modelObj)
+	db = db.Model(modelObj)
 
 	if q.mainMB != nil {
 
@@ -616,10 +617,26 @@ func (q *Query) Create(value interface{}) IQuery {
 
 	tableName := "nada"
 
+	var err error
+	var nested map[int]map[string][]mdl.IModel            // level->tablename->models
+	var associations map[uuid.UUID]map[string][]uuid.UUID // parent_table_id -> embedded_table_name -> embedded_table_ids
+
 	// Single modelObj
 	if modelObj, ok := value.(mdl.IModel); ok {
 		tableName = mdl.GetTableNameFromIModel(modelObj)
-		if err := RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db, modelObj); err != nil {
+		if err := CheckPeggedFieldsHasNoExistingID(db, modelObj); err != nil {
+			q.Err = err
+			return q
+		}
+
+		nested, err = GrabAllNestedPeggedStructs(modelObj) // map[level int]map[tableName string][]mdl.IModel
+		if err != nil {
+			q.Err = err
+			return q
+		}
+
+		associations, err = GrabFirstLevelAssociatedFields(modelObj)
+		if err != nil {
 			q.Err = err
 			return q
 		}
@@ -637,15 +654,11 @@ func (q *Query) Create(value interface{}) IQuery {
 			}
 
 			if isPtr {
-				tableName = mdl.GetTableNameFromIModel(val.Index(0).Interface().(mdl.IModel))
+				modelObj = val.Index(0).Interface().(mdl.IModel)
 			} else {
-				tableName = mdl.GetTableNameFromIModel(val.Index(0).Addr().Interface().(mdl.IModel))
+				modelObj = val.Index(0).Addr().Interface().(mdl.IModel)
 			}
-			// }
-			// reflectValue := reflect.Indirect(reflect.ValueOf(value))
-			// for reflectValue.Kind() == reflect.Ptr || reflectValue.Kind() == reflect.Interface {
-			// 	reflectValue = reflect.Indirect(reflectValue)
-			// }
+			tableName = mdl.GetTableNameFromIModel(modelObj)
 
 			for j := 0; j < val.Len(); j++ {
 				var nestedModel mdl.IModel
@@ -654,21 +667,76 @@ func (q *Query) Create(value interface{}) IQuery {
 				} else {
 					nestedModel = val.Index(j).Addr().Interface().(mdl.IModel)
 				}
-				if err := RemoveIDForNonPegOrPeggedFieldsBeforeCreate(db, nestedModel); err != nil {
+
+				// I wish this doesn't need extra db query..takes too much DB time
+				if err := CheckPeggedFieldsHasNoExistingID(db, nestedModel); err != nil {
 					q.Err = err
 					return q
 				}
+			}
+
+			associations, err = GrabFirstLevelAssociatedFieldsForSlice(value)
+			if err != nil {
+				q.Err = err
+				return q
+			}
+
+			nested, err = GrabAllNestedPeggedStructsForSlice(value)
+			if err != nil {
+				q.Err = err
+				return q
 			}
 		default:
 			q.Err = fmt.Errorf("wrong type, should be mdl.IModel or a slice of mdl.IModel")
 		}
 	}
 
-	if err := db.Table(tableName).Create(value).Error; err != nil {
+	// Skip all association, we create manually so we can differentitate between
+	// pegg and pegassociate
+	if err := db.Table(tableName).Omit(clause.Associations).Create(value).Error; err != nil {
 		// if err := db.Table(tableName).Create(value).Error; err != nil {
 		PrintFileAndLine(err)
 		q.Err = err
 		return q
+	}
+
+	// Now the model is created, create all pegged, higher level first
+	for lvl := 0; lvl < len(nested)+1; lvl++ {
+		for tableName, marr := range nested[lvl] {
+			typ := reflect.TypeOf(reflect.ValueOf(marr[0]).Interface())
+			// Gorm needs an array with the actual type, not other interface type
+			arr := reflect.MakeSlice(reflect.SliceOf(typ), len(marr), len(marr))
+			for i, item := range marr {
+				arr.Index(i).Set(reflect.ValueOf(item))
+			}
+			arrPtr := arr.Interface()
+
+			q.Err = q.db.Table(tableName).Omit(clause.Associations).Create(arrPtr).Error
+			if q.Err != nil {
+				PrintFileAndLine(q.Err)
+			}
+		}
+	}
+
+	// Now for pegassociated, create the associations
+	// var associations map[uuid.UUID]map[string][]uuid.UUID  // parent_table_id -> embedded_table_name -> embedded_table_ids
+	for parentTableID, tableName2IDs := range associations {
+		for embeddedTableName, ids := range tableName2IDs {
+			// If the associated is not found, error
+			var c int64
+			if q.Err = q.db.Table(embeddedTableName).Where(fmt.Sprintf("%s.id IN (?)", embeddedTableName), ids).Count(&c).Error; q.Err != nil {
+				return q
+			}
+
+			if c != int64(len(ids)) {
+				q.Err = fmt.Errorf("pegassoc record %s not found", embeddedTableName)
+				return q
+			}
+
+			if q.Err = q.db.Exec(fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s.id IN (?)", embeddedTableName, tableName+"_id", embeddedTableName), parentTableID, ids).Error; q.Err != nil {
+				return q
+			}
+		}
 	}
 
 	// For pegassociated, the since we expect association_autoupdate:false
@@ -798,7 +866,7 @@ func (q *Query) Save(modelObj mdl.IModel) IQuery {
 		return q
 	}
 
-	// Since pegged, lower level first
+	// Since pegged, higher level first
 	for lvl := 0; lvl < len(nested)+1; lvl++ {
 		for tableName, marr := range nested[lvl] {
 			typ := reflect.TypeOf(reflect.ValueOf(marr[0]).Interface())
@@ -938,10 +1006,6 @@ func SetQryLogger(db *gorm.DB) {
 type TableAndArgs struct {
 	TblName string // The table the predicate relation applies to, at this level (non-nested)
 	Args    []interface{}
-}
-
-func buildPreload(tx *gorm.DB) *gorm.DB {
-	return tx.Set("gorm:auto_preload", true)
 }
 
 // hacky...

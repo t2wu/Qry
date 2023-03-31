@@ -1,7 +1,6 @@
 package qry
 
 import (
-	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -130,7 +129,6 @@ func TestUpdate_NestedField_ShouldGiveWarning(t *testing.T) {
 
 	// Name:        "Doggie2",
 	if err := Q(db, C("Name =", "second")).Update(&TopLevel{}, C("Dogs.Color =", "purple")).Error(); err != nil {
-		log.Println("dot notation in update", err.Error())
 		assert.Equal(t, "dot notation in update", err.Error())
 		return
 	}
@@ -153,13 +151,18 @@ func TestSave_PegArray_ShouldUpdateData(t *testing.T) {
 		TopLevelID: &u1,
 	}
 
-	tm := TopLevel{BaseModel: mdl.BaseModel{ID: &u1},
-		Name: "MyTestModel",
-		Age:  1,
-		Dogs: []SecLevelArrDog{newDog}, // wrong dog
+	tm := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
+		Name:      "MyTestModel",
+		Age:       1,
+		// not really testing this but this is required since it's associated and has no id
+		EmbedCat: SecLevelEmbedCat{
+			BaseModel: mdl.BaseModel{ID: datatype.AddrOfUUID(datatype.NewUUID())},
+		},
+		Dogs: []SecLevelArrDog{newDog},
 	}
 
-	if err := Q(tx).Create(&tm).Error(); !assert.Nil(t, err) {
+	if err := Q(tx).Create(&tm.EmbedCat).Create(&tm).Error(); !assert.Nil(t, err) {
 		return
 	}
 
@@ -183,7 +186,7 @@ func TestSave_PegArray_ShouldUpdateData(t *testing.T) {
 	}
 }
 
-func TestCreate_PegAssocArray_ShouldNotUpdateAssociatedData(t *testing.T) {
+func TestSave_PegAssocArray_WhichDidNotPreviouslyExist_ShouldReturnError(t *testing.T) {
 	// First create a cat, and while creating TopLevel, associate it with the cat
 	// Then, when you load it, you should see the cat
 	catuuid := datatype.NewUUID()
@@ -193,44 +196,24 @@ func TestCreate_PegAssocArray_ShouldNotUpdateAssociatedData(t *testing.T) {
 		Color:     "black",
 	}
 
-	catUpdate := SecLevelArrCat{
-		BaseModel: mdl.BaseModel{ID: &catuuid},
-		Name:      "Devil",
-		Color:     "red",
-	}
-
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	err := Q(tx).Create(&cat).Error()
-	if !assert.Nil(t, err) {
-		return
-	}
-
 	u1 := datatype.NewUUID()
-	tm := TopLevel{BaseModel: mdl.BaseModel{ID: &u1},
-		Name: "MyTestModel",
-		Age:  1,
-		Cats: []SecLevelArrCat{catUpdate}, // try to update it, which shouldn't happen
+	tm := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
+		Name:      "MyTestModel",
+		Age:       1,
 	}
 
-	err = Q(tx).Create(&tm).Error() // create it !! TODO create need not to create peg assoc
-	if !assert.Nil(t, err) {
+	if err := Q(tx).Create(&tm).Error(); !assert.Nil(t, err) {
 		return
 	}
 
-	searched := TopLevel{}
-	if err := Q(tx, C("ID =", u1)).First(&searched).Error(); err != nil {
-		assert.Nil(t, err)
-		return
-	}
+	tm.Cats = []SecLevelArrCat{cat}
 
-	assert.Equal(t, u1, *searched.ID)
-	if assert.Equal(t, 1, len(searched.Cats)) { // should be associated
-		assert.Equal(t, catuuid, *searched.Cats[0].ID)
-		assert.Equal(t, "Buddy", searched.Cats[0].Name)
-		assert.Equal(t, "black", searched.Cats[0].Color)
-	}
+	err := Q(tx).Save(&tm).Error()
+	assert.NotNil(t, err)
 }
 
 func TestSave_PegEmbed_ShouldUpdateData(t *testing.T) {
@@ -249,12 +232,15 @@ func TestSave_PegEmbed_ShouldUpdateData(t *testing.T) {
 	}
 
 	tm := TopLevel{BaseModel: mdl.BaseModel{ID: &u1},
-		Name:     "MyTestModel",
-		Age:      1,
+		Name: "MyTestModel",
+		Age:  1,
+		EmbedCat: SecLevelEmbedCat{
+			BaseModel: mdl.BaseModel{ID: datatype.AddrOfUUID(datatype.NewUUID())},
+		},
 		EmbedDog: newDog,
 	}
 
-	if err := Q(tx).Create(&tm).Error(); !assert.Nil(t, err) {
+	if err := Q(tx).Create(&tm.EmbedCat).Create(&tm).Error(); !assert.Nil(t, err) {
 		return
 	}
 
@@ -284,6 +270,11 @@ func TestSave_PegAssocEmbed_ShouldNotUpdateData(t *testing.T) {
 
 	u1 := datatype.NewUUID()
 
+	tm := TopLevel{BaseModel: mdl.BaseModel{ID: &u1},
+		Name: "MyTestModel",
+		Age:  1,
+	}
+
 	cat := SecLevelEmbedCat{
 		BaseModel:  mdl.BaseModel{ID: &doguuid},
 		Name:       "NewBuddy",
@@ -291,16 +282,11 @@ func TestSave_PegAssocEmbed_ShouldNotUpdateData(t *testing.T) {
 		TopLevelID: &u1,
 	}
 
-	tm := TopLevel{BaseModel: mdl.BaseModel{ID: &u1},
-		Name:     "MyTestModel",
-		Age:      1,
-		EmbedCat: cat,
-	}
-
-	if err := Q(tx).Create(&tm).Error(); !assert.Nil(t, err) {
+	if err := Q(tx).Create(&tm).Create(&cat).Error(); !assert.Nil(t, err) {
 		return
 	}
 
+	tm.EmbedCat = cat
 	tm.EmbedCat.Color = "black"
 
 	if err := Q(tx).Save(&tm).Error(); !assert.Nil(t, err) {
@@ -319,6 +305,33 @@ func TestSave_PegAssocEmbed_ShouldNotUpdateData(t *testing.T) {
 	assert.Equal(t, "red", searched.EmbedCat.Color)
 }
 
+func TestSave_PeggedAssocEmbed_WhichDidNotPreviouslyExist_ShouldReturnError(t *testing.T) {
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	u1 := datatype.NewUUID()
+	catuuid1 := datatype.NewUUID()
+
+	cat := SecLevelEmbedCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid1},
+		Name:      "Kiddy",
+		Color:     "black",
+	}
+
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
+		Name:      "TestModel1",
+	}
+
+	if err := DB(tx).Create(&testModel1).Error(); !assert.Nil(t, err) {
+		return
+	}
+
+	testModel1.EmbedCat = cat
+	err := DB(tx).Save(&testModel1).Error()
+	assert.NotNil(t, err)
+}
+
 func TestSave_PegPtr_ShouldUpdateData(t *testing.T) {
 	doguuid := datatype.NewUUID()
 
@@ -335,24 +348,23 @@ func TestSave_PegPtr_ShouldUpdateData(t *testing.T) {
 	}
 
 	tm := TopLevel{BaseModel: mdl.BaseModel{ID: &u1},
-		Name:   "MyTestModel",
-		Age:    1,
+		Name: "MyTestModel",
+		Age:  1,
+		EmbedCat: SecLevelEmbedCat{
+			BaseModel: mdl.BaseModel{ID: datatype.AddrOfUUID(datatype.NewUUID())},
+		},
 		PtrDog: &newDog,
 	}
 
-	if err := Q(tx).Create(&tm).Error(); !assert.Nil(t, err) {
+	if err := Q(tx).Create(&tm.EmbedCat).Create(&tm).Error(); !assert.Nil(t, err) {
 		return
 	}
 
 	tm.PtrDog.Color = "black"
 
-	log.Println("------------------------------------------------- tim here begin")
-
 	if err := Q(tx).Save(&tm).Error(); !assert.Nil(t, err) {
 		return
 	}
-
-	log.Println("------------------------------------------------- tim here en d")
 
 	searched := TopLevel{}
 	if err := Q(tx, C("ID =", u1)).First(&searched).Error(); err != nil {
@@ -382,15 +394,18 @@ func TestSave_PtrAssocEmbed_ShouldNotUpdateData(t *testing.T) {
 	}
 
 	tm := TopLevel{BaseModel: mdl.BaseModel{ID: &u1},
-		Name:   "MyTestModel",
-		Age:    1,
-		PtrCat: &cat,
+		Name: "MyTestModel",
+		Age:  1,
+		EmbedCat: SecLevelEmbedCat{
+			BaseModel: mdl.BaseModel{ID: datatype.AddrOfUUID(datatype.NewUUID())},
+		},
 	}
 
-	if err := Q(tx).Create(&tm).Error(); !assert.Nil(t, err) {
+	if err := Q(tx).Create(&tm.EmbedCat).Create(&tm).Create(&cat).Error(); !assert.Nil(t, err) {
 		return
 	}
 
+	tm.PtrCat = &cat
 	tm.PtrCat.Color = "black"
 
 	if err := Q(tx).Save(&tm).Error(); !assert.Nil(t, err) {
@@ -409,6 +424,33 @@ func TestSave_PtrAssocEmbed_ShouldNotUpdateData(t *testing.T) {
 	assert.Equal(t, "red", searched.PtrCat.Color)
 }
 
+func TestSave_PeggedAssocPtr_WhichDidNotPreviouslyExist_ShouldReturnError(t *testing.T) {
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	u1 := datatype.NewUUID()
+	catuuid1 := datatype.NewUUID()
+
+	cat := SecLevelPtrCat{
+		BaseModel: mdl.BaseModel{ID: &catuuid1},
+		Name:      "Kiddy",
+		Color:     "black",
+	}
+
+	testModel1 := TopLevel{
+		BaseModel: mdl.BaseModel{ID: &u1},
+		Name:      "TestModel1",
+	}
+
+	if err := DB(tx).Create(&testModel1).Error(); !assert.Nil(t, err) {
+		return
+	}
+
+	testModel1.PtrCat = &cat
+	err := DB(tx).Save(&testModel1).Error()
+	assert.NotNil(t, err)
+}
+
 func TestSave_ThirdLevelEmbedPeg_ShouldNotUpdateData(t *testing.T) {
 	u1 := datatype.NewUUID()
 	doguuid := datatype.NewUUID()
@@ -418,6 +460,9 @@ func TestSave_ThirdLevelEmbedPeg_ShouldNotUpdateData(t *testing.T) {
 		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "MyTestModel",
 		Age:       1,
+		EmbedCat: SecLevelEmbedCat{
+			BaseModel: mdl.BaseModel{ID: datatype.AddrOfUUID(datatype.NewUUID())},
+		},
 		EmbedDog: SecLevelEmbedDog{
 			BaseModel: mdl.BaseModel{ID: &doguuid},
 			Name:      "Happy",
@@ -434,7 +479,7 @@ func TestSave_ThirdLevelEmbedPeg_ShouldNotUpdateData(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	if err := Q(tx).Create(&tm).Error(); !assert.Nil(t, err) {
+	if err := Q(tx).Create(&tm.EmbedCat).Create(&tm).Error(); !assert.Nil(t, err) {
 		return
 	}
 
@@ -462,6 +507,9 @@ func TestSave_ThirdLevelPtrPeg_ShouldNotUpdateData(t *testing.T) {
 		BaseModel: mdl.BaseModel{ID: &u1},
 		Name:      "MyTestModel",
 		Age:       1,
+		EmbedCat: SecLevelEmbedCat{
+			BaseModel: mdl.BaseModel{ID: datatype.AddrOfUUID(datatype.NewUUID())},
+		},
 		PtrDog: &SecLevelPtrDog{
 			BaseModel: mdl.BaseModel{ID: &doguuid},
 			Name:      "Happy",
@@ -478,7 +526,7 @@ func TestSave_ThirdLevelPtrPeg_ShouldNotUpdateData(t *testing.T) {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	if err := Q(tx).Create(&tm).Error(); !assert.Nil(t, err) {
+	if err := Q(tx).Create(&tm.EmbedCat).Create(&tm).Error(); !assert.Nil(t, err) {
 		return
 	}
 
